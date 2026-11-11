@@ -1,4 +1,4 @@
-"""Five reusable tabs prepare concurrently; ready items submit one at a time."""
+"""Two concurrent upload tabs, serial submission, and durable publishing rounds."""
 from __future__ import annotations
 
 import argparse
@@ -16,19 +16,22 @@ from loguru import logger
 from publisher_lock import AccountLock
 from publisher_options import cli_schedule
 from batch_table import description_with_tags
-from daily_publish_limit import DailyPublishBudget, DailyPublishLimitReached
+from daily_publish_limit import BANGKOK, DailyPublishBudget, HOURLY_LIMIT, PublishLimitReached, ROUND_INTERVAL
 from uploader.tencent_uploader.main import (
     TencentVideo, cookie_auth, _build_launch_kwargs,
     TENCENT_PUBLISH_STRATEGY_IMMEDIATE, TENCENT_PUBLISH_STRATEGY_SCHEDULED,
 )
 
 
+MAX_TABS = 2
+
+
 class ReadyFirstScheduler:
     """A fixed number of slots, FIFO ready order, and a single submit lock."""
 
-    def __init__(self, width=5, stop=None):
-        if not 1 <= width <= 5:
-            raise ValueError('并行标签数量必须为 1–5')
+    def __init__(self, width=MAX_TABS, stop=None):
+        if not 1 <= width <= MAX_TABS:
+            raise ValueError('并行标签数量必须为 1 或 2')
         self.width = width
         self.stop = stop or threading.Event()
         self.halt = asyncio.Event()
@@ -156,13 +159,15 @@ async def verify_video_file(page, path):
 
 
 class ParallelPublisher:
-    def __init__(self, manifest_path, *, record=None, event=None, stop=None, tabs=5,
-                 cover_timeout=1800, limit=None, debug_port=None):
+    def __init__(self, manifest_path, *, record=None, event=None, stop=None, tabs=MAX_TABS,
+                 cover_timeout=1800, limit=None, debug_port=None, budget=None, sleep=asyncio.sleep):
         self.path = Path(manifest_path).resolve()
         self.record = record if record is not None else json.loads(self.path.read_text(encoding='utf-8'))
         self.event = event or (lambda kind, payload: print(payload, flush=True))
         self.stop = stop or threading.Event()
-        self.tabs, self.cover_timeout, self.limit = tabs, cover_timeout, limit
+        if tabs < 1 or (limit is not None and limit < 1):
+            raise ValueError('标签数量和任务上限必须为正数')
+        self.tabs, self.cover_timeout, self.limit = min(tabs, MAX_TABS), cover_timeout, limit
         self.debug_port = debug_port
         self.root = Path(BASE_DIR)
         self.logs = self.root / '.local/gui/logs'
@@ -172,7 +177,8 @@ class ParallelPublisher:
         self.sinks = {}
         self.started = set()
         self.indices = {id(row): i for i, row in enumerate(self.record['items'])}
-        self.scheduler = ReadyFirstScheduler(tabs, self.stop)
+        self.budget = budget or DailyPublishBudget(self.root)
+        self.sleep = sleep
         self.limit_reached = False
 
     def save(self):
@@ -232,8 +238,6 @@ class ParallelPublisher:
                 if row.get('status') in ('completed', 'running', 'unknown'):
                     raise ValueError(f'{Path(row["file"]).name} 在其他批次已有完成或待核对记录')
         pending.sort(key=lambda row: Path(row['file']).name in self.record.get('publish_last', []))
-        if self.limit:
-            pending = pending[:self.limit]
         return pending
 
     def app_for(self, row):
@@ -329,9 +333,9 @@ class ParallelPublisher:
             logger.remove(sink)
 
     async def failure(self, row, exc):
-        if isinstance(exc, DailyPublishLimitReached):
+        if isinstance(exc, PublishLimitReached):
             self.limit_reached = True
-            row.update(status='pending', phase='daily_limit_wait', error=str(exc))
+            row.update(status='pending', phase='quota_wait', error=str(exc))
             self.save()
             self.emit(row, str(exc))
             self.close_sink(row)
@@ -371,35 +375,54 @@ class ParallelPublisher:
         self.emit(row, row['error'])
         self.close_sink(row)
 
-    async def run(self, *, acquire_lock=True):
-        account_lock = AccountLock(self.root / '.local/gui/account-locks', self.record['account']).acquire() if acquire_lock else None
-        try:
-            jobs = self.preflight()
-            if not jobs:
-                self.record['status'] = 'completed' if all(r.get('status') == 'completed' for r in self.record['items']) else 'stopped_for_review'
-                self.save()
-                return 0 if self.record['status'] == 'completed' else 1
-            budget = DailyPublishBudget(self.root)
-            if not self.record.get('draft'):
-                usage = budget.usage(self.record['account'])
-                self.record['daily_budget'] = usage
-                self.event('log', f'每日上限 {usage["limit"]} 条/账号（曼谷日期 {usage["day"]}），已记 {usage["used"]} 次，剩余 {usage["remaining"]} 次。\n')
-                if not usage['remaining']:
-                    self.record['status'] = 'daily_limit_reached'
-                    self.save()
-                    return 2
-                jobs = jobs[:usage['remaining']]
-            cookie = self.root / 'cookies' / f'tencent_{self.record["account"]}.json'
-            if not cookie.is_file() or not await cookie_auth(str(cookie)):
-                raise RuntimeError('视频号登录已失效，请重新扫码')
-            self.record.update(status='running', parallel_tabs=self.tabs, publish_order='cover_ready_first')
-            self.save()
-            async with async_playwright() as p:
-                launch = _build_launch_kwargs(headless=False)
-                launch['args'] = [*launch.get('args', []), '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows']
-                if self.debug_port:
-                    launch['args'] += ['--remote-debugging-address=127.0.0.1', f'--remote-debugging-port={self.debug_port}']
-                browser = await p.chromium.launch(**launch)
+    def finish(self, status, code):
+        self.record['status'] = status
+        self.record.pop('next_run_at', None)
+        self.save()
+        return code
+
+    async def wait_until(self, deadline):
+        previous = self.record.get('next_run_at')
+        self.record.update(status='waiting_for_next_round', next_run_at=deadline.isoformat())
+        self.save()
+        if previous != self.record['next_run_at']:
+            message = f'下一轮最早 {deadline.astimezone(BANGKOK):%m-%d %H:%M:%S}（曼谷时间）'
+            self.event('batch_wait', message)
+            self.event('log', message + '\n')
+        while not self.stop.is_set():
+            seconds = (deadline - self.budget.current_time()).total_seconds()
+            if seconds <= 0:
+                return
+            await self.sleep(min(seconds, 1))
+
+    def round_deadline(self):
+        saved = self.record.get('next_round_at')
+        if saved:
+            return datetime.fromisoformat(saved)
+        if self.record.get('round_in_progress'):
+            # Recover a round whose final result was saved just before the app closed.
+            finished = [datetime.fromisoformat(row['finished_at']) for row in self.record['items']
+                        if row.get('status') == 'completed' and row.get('finished_at')]
+            if finished:
+                return max(finished) + ROUND_INTERVAL
+        return None
+
+    async def run_round(self, jobs):
+        cookie = self.root / 'cookies' / f'tencent_{self.record["account"]}.json'
+        if not cookie.is_file() or not await cookie_auth(str(cookie)):
+            raise RuntimeError('视频号登录已失效，请重新扫码')
+        if self.stop.is_set():
+            return
+        self.started.clear()
+        self.limit_reached = False
+        self.scheduler = ReadyFirstScheduler(self.tabs, self.stop)
+        async with async_playwright() as p:
+            launch = _build_launch_kwargs(headless=False)
+            launch['args'] = [*launch.get('args', []), '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows']
+            if self.debug_port:
+                launch['args'] += ['--remote-debugging-address=127.0.0.1', f'--remote-debugging-port={self.debug_port}']
+            browser = await p.chromium.launch(**launch)
+            try:
                 context = await browser.new_context(storage_state=str(cookie))
                 self.context = context
                 try:
@@ -409,20 +432,57 @@ class ParallelPublisher:
                     await context.storage_state(path=str(cookie))
                 finally:
                     await context.close()
-                    await browser.close()
-            statuses = [r.get('status') for r in self.record['items']]
-            failed_now = any(id(row) in self.started and row.get('status') in ('unknown', 'failed_before_submit') for row in self.record['items'])
-            self.record['status'] = 'completed' if all(s == 'completed' for s in statuses) else 'stopped_for_review' if failed_now else 'ready_to_resume'
-            if not self.record.get('draft'):
-                usage = budget.usage(self.record['account'])
-                self.record['daily_budget'] = usage
-                if self.limit_reached or (not usage['remaining'] and self.record['status'] == 'ready_to_resume'):
-                    self.record['status'] = 'daily_limit_reached'
-            self.save()
-            return 2 if self.record['status'] == 'daily_limit_reached' else 0 if self.record['status'] in ('completed', 'ready_to_resume') else 1
+            finally:
+                await browser.close()
+
+    async def run(self, *, acquire_lock=True):
+        account = self.record['account']
+        account_lock = AccountLock(self.root / '.local/gui/account-locks', account).acquire() if acquire_lock else None
+        try:
+            selected = {id(row) for row in self.preflight()[:self.limit]}
+            draft = self.record.get('draft', False)
+            while True:
+                if self.stop.is_set():
+                    return self.finish('paused', 0)
+                jobs = [row for row in self.preflight() if id(row) in selected]
+                if not jobs:
+                    status = 'completed' if all(r.get('status') == 'completed' for r in self.record['items']) else 'ready_to_resume'
+                    if status == 'completed':
+                        self.record.pop('next_round_at', None)
+                    return self.finish(status, 0)
+                if not draft:
+                    usage = self.budget.usage(account)
+                    self.record['daily_budget'] = usage
+                    now = self.budget.current_time()
+                    quota_time = datetime.fromisoformat(usage['next_available_at'])
+                    deadline = max(quota_time, self.round_deadline() or now)
+                    if deadline > now:
+                        await self.wait_until(deadline)
+                        continue
+                    capacity = min(HOURLY_LIMIT, usage['hourly_remaining'], usage['remaining'])
+                    if not capacity:
+                        continue
+                    jobs = jobs[:capacity]
+                self.record.pop('next_run_at', None)
+                self.record.pop('next_round_at', None)
+                self.record.update(status='running', parallel_tabs=self.tabs, publish_order='cover_ready_first',
+                                   round_in_progress=not draft, publish_round=self.record.get('publish_round', 0)+1)
+                self.save()
+                self.event('batch_wait', f'第 {self.record["publish_round"]} 轮 · 本轮 {len(jobs)} 条')
+                await self.run_round(jobs)
+                self.record.pop('round_in_progress', None)
+                if not draft and any(row.get('status') == 'completed' for row in jobs):
+                    self.record['next_round_at'] = (self.budget.current_time()+ROUND_INTERVAL).isoformat()
+                self.save()
+                if any(row.get('status') in ('unknown','failed_before_submit') for row in jobs if id(row) in self.started):
+                    return self.finish('stopped_for_review', 1)
+                if all(row.get('status') == 'completed' for row in self.record['items']):
+                    self.record.pop('next_round_at', None)
+                    return self.finish('completed', 0)
+                if not self.stop.is_set() and not self.limit_reached and not any(row.get('status') == 'completed' for row in jobs):
+                    return self.finish('stopped_for_review', 1)
         except BaseException:
-            self.record['status'] = 'stopped_for_review'
-            self.save()
+            self.finish('stopped_for_review', 1)
             raise
         finally:
             for sink in list(self.sinks.values()):
@@ -435,7 +495,7 @@ class ParallelPublisher:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--manifest', required=True, type=Path)
-    parser.add_argument('--tabs', default=5, type=int, choices=range(1, 6))
+    parser.add_argument('--tabs', default=MAX_TABS, type=int, choices=range(1, 6), help='最多使用 2 个标签；旧参数会自动限制。')
     parser.add_argument('--cover-timeout', default=1800, type=float)
     parser.add_argument('--keep-last', action='append', default=[])
     parser.add_argument('--limit', type=int)

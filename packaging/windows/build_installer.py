@@ -58,7 +58,7 @@ def prepare(stage, browsers):
             shutil.copytree(source, stage/'.local/browsers'/source.name, ignore=ignore_runtime)
     policy = stage/'.local/gui/publish-policy.json'
     policy.parent.mkdir(parents=True, exist_ok=True)
-    policy.write_text(json.dumps({'daily_limit':20,'timezone':'Asia/Bangkok',
+    policy.write_text(json.dumps({'daily_limit':36,'hourly_limit':6,'timezone':'Asia/Bangkok',
                                   'unknown_submissions_consume_quota':True}, indent=2), encoding='utf-8')
     shutil.copy2(ROOT/'packaging/windows/安装后请先阅读.txt', stage/'安装后请先阅读.txt')
     template = stage/'示例文案表.csv'
@@ -79,7 +79,7 @@ def prepare(stage, browsers):
         with path.open('rb') as stream:
             digest = hashlib.file_digest(stream,'sha256').hexdigest()
         entries.append({'path':relative,'bytes':path.stat().st_size,'sha256':digest})
-    manifest = {'version':'1.11.1','architecture':'windows-x64','private_state_included':False,
+    manifest = {'version':'1.12.0','architecture':'windows-x64','private_state_included':False,
                 'files':entries, 'total_bytes':sum(entry['bytes'] for entry in entries)}
     (stage/'bundle-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'stage':str(stage),'files':len(entries),'bytes':manifest['total_bytes']},ensure_ascii=False),flush=True)

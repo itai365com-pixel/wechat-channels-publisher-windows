@@ -12,7 +12,7 @@ from tkinter.scrolledtext import ScrolledText
 
 from batch_table import read_tables, records_from_rows, match_records, description_with_tags, select_records, video_series, resolve_series
 from video_channels_gui import Publisher, ROOT
-from publisher_options import OptionsPanel, option_arguments, options_summary, planned_times, scrollable_panel, initialize_desktop_app, short_title_issues
+from publisher_options import OptionsPanel, options_summary, planned_times, scrollable_panel, initialize_desktop_app, short_title_issues
 
 DEFAULT_FOLDER = Path.home() / "Videos"
 BATCH_DIR = ROOT / ".local" / "gui" / "batches"
@@ -96,7 +96,7 @@ class BatchPublisher(Publisher):
         self.last_preview_context = None
         self.last_preview_selection = None
         super().__init__(root)
-        root.title("视频号批量发布助手 v1.11.1")
+        root.title("视频号批量发布助手 v1.12.0")
         root.geometry(f"{min(1420, root.winfo_screenwidth() - 100)}x{min(960, root.winfo_screenheight() - 100)}")
         root.minsize(1060, 850)
         root.after(300, self.preview)
@@ -110,7 +110,7 @@ class BatchPublisher(Publisher):
         heading.grid(row=0, column=0, columnspan=3, sticky='ew')
         ttk.Label(heading, text="视频号批量发布", style="Heading.TLabel").pack(side='left')
         ttk.Button(heading, text='词映官网', command=self.open_wordmotion).pack(side='right')
-        ttk.Label(panel, text="5 个标签并行上传，封面先就绪的先发表；每条独立核对文案与合集。", style="Muted.TLabel").grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 16))
+        ttk.Label(panel, text="最多 2 个标签并行上传，每轮最多 6 条，完成后等 1 小时自动继续。", style="Muted.TLabel").grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 16))
         accounts = ttk.Frame(panel)
         accounts.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(0, 5))
         ttk.Label(accounts, text="视频号账号", style="Field.TLabel").pack(side="left", padx=(0, 12))
@@ -127,12 +127,18 @@ class BatchPublisher(Publisher):
         ttk.Label(accounts, textvariable=self.quota_status, style='Muted.TLabel').pack(side='left', padx=(18, 0))
         ttk.Label(panel, textvariable=self.login_status, style="Muted.TLabel").grid(row=3, column=0, columnspan=3, sticky="w", pady=(0, 12))
 
-        for row, label, variable, callback in ((4, "视频文件夹", self.folder, self.choose_folder), (5, "文案表格", self.table_path, self.choose_table)):
-            ttk.Label(panel, text=label, style="Field.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 12), pady=4)
-            entry = ttk.Entry(panel, textvariable=variable)
-            entry.grid(row=row, column=1, sticky="ew", pady=4)
-            button = ttk.Button(panel, text="选择…", command=callback)
-            button.grid(row=row, column=2, padx=(10, 0), pady=4)
+        paths = ttk.Frame(panel)
+        paths.grid(row=4, column=0, columnspan=3, sticky='ew', pady=4)
+        for index, (label, variable, callback) in enumerate((("视频文件夹", self.folder, self.choose_folder), ("文案表格", self.table_path, self.choose_table))):
+            paths.columnconfigure(index, weight=1, uniform='paths')
+            field = ttk.Frame(paths)
+            field.grid(row=0, column=index, sticky='ew', padx=(0, 16) if index == 0 else 0)
+            field.columnconfigure(1, weight=1)
+            ttk.Label(field, text=label, style='Field.TLabel').grid(row=0, column=0, padx=(0, 8))
+            entry = ttk.Entry(field, textvariable=variable, width=1)
+            entry.grid(row=0, column=1, sticky='ew')
+            button = ttk.Button(field, text='选择…', command=callback)
+            button.grid(row=0, column=2, padx=(8, 0))
             self.controls.extend([entry, button])
         options = ttk.Frame(panel)
         options.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(10, 10))
@@ -189,7 +195,7 @@ class BatchPublisher(Publisher):
 
         actions = ttk.Frame(panel)
         actions.grid(row=12, column=0, columnspan=3, sticky="ew")
-        self.stop_button = ttk.Button(actions, text="本轮结束后停止", state="disabled", command=self.request_stop)
+        self.stop_button = ttk.Button(actions, text="暂停队列", state="disabled", command=self.request_stop)
         self.stop_button.pack(side="left")
         edit = ttk.Button(actions, text="编辑本条文案", command=self.edit_item)
         edit.pack(side="left", padx=(10, 0))
@@ -417,7 +423,6 @@ class BatchPublisher(Publisher):
             bad = [Path(row['file']).name for row in self.items if row.get('decode_error')]
             if bad:
                 raise ValueError('以下视频无法解码：' + '、'.join(bad[:10]) + '。请替换视频后更新预览，或使用“指定文件”排除这些条目。')
-            usage = self.check_daily_capacity() if not draft else None
             source = Path(self.table_path.get()).stat()
             if (source.st_size, source.st_mtime_ns) != self.table_signature:
                 raise ValueError("表格已修改，请更新预览后再发布。")
@@ -448,14 +453,16 @@ class BatchPublisher(Publisher):
             if skipped:
                 question += f'已自动跳过 {len(skipped)} 条后台核验完成的视频。\n'
             question += "确认后将逐条上传并保存草稿。" if draft else "确认后将逐条上传并提交定时发表。" if schedules[0] else "确认后将逐条上传并立即发表到视频号。"
-            question += "\n最多同时打开 5 个标签上传，按封面就绪顺序逐条提交；各条定时时间按预览保持。"
-            if usage:
-                question += f'\n本账号每日上限 {usage["limit"]} 条，今天最多再提交 {usage["remaining"]} 条；超出部分保留在队列，明天手动继续。'
+            question += "\n最多同时打开 2 个标签上传，按封面就绪顺序逐条提交。"
+            if not draft:
+                question += '\n每轮最多 6 条，完成后至少等 1 小时。满每日额度后在曼谷次日自动继续。请保持程序运行。'
+                if schedules[0]:
+                    question += '\n各条平台定时时间按预览保留，等待后如已来不及提交，队列会暂停。'
             if not messagebox.askyesno(f"确认{action}", question, parent=self.root):
                 return
             BATCH_DIR.mkdir(parents=True, exist_ok=True)
             self.manifest_path = BATCH_DIR / f"{datetime.now():%Y%m%d-%H%M%S-%f}.json"
-            self.manifest = {"account": self.account.get(), "draft": draft, "options": settings, "source": self.table_path.get(), "sheet": self.sheet.get(), "created_at": datetime.now().astimezone().isoformat(), "items": jobs, "parallel_tabs": 5}
+            self.manifest = {"account": self.account.get(), "draft": draft, "options": settings, "source": self.table_path.get(), "sheet": self.sheet.get(), "created_at": datetime.now().astimezone().isoformat(), "items": jobs, "parallel_tabs": 2}
             self.manifest['skipped_completed'] = skipped
             self.items = jobs
             for key in self.tree.get_children():
@@ -502,11 +509,11 @@ class BatchPublisher(Publisher):
             if confirm:
                 completed = sum(row.get('status') == 'completed' for row in record['items'])
                 question = f'账号：{record["account"]}\n已完成 {completed} 条，将跳过。\n继续未完成 {len(jobs)} 条。\n\n' + options_summary(record['options'])
-                question += '\n\n同时使用 5 个标签上传，封面就绪后依次发表。确认继续？'
+                question += '\n\n最多使用 2 个标签上传，按额度和队列中保存的时间继续。确认继续？'
                 if not messagebox.askyesno('继续已有队列', question, parent=self.root):
                     return
             self.manifest_path, self.manifest = path, record
-            record['parallel_tabs'] = 5
+            record['parallel_tabs'] = 2
             self.account.set(record['account'])
             self.folder.set(str(Path(record['items'][0]['file']).parent))
             self.table_path.set(record.get('source', ''))
@@ -527,7 +534,7 @@ class BatchPublisher(Publisher):
                 self.tree.insert('', 'end', iid=str(index), values=(index + 1, Path(row['file']).name,
                     row.get('short_title') or row['title'], row.get('publish_desc', row.get('desc', '')),
                     row.get('schedule') or '立即发表', label))
-            self.summary.set(f'继续队列：{path.name} · 待处理 {len(jobs)} 条 · 5 标签并行')
+            self.summary.set(f'继续队列：{path.name} · 待处理 {len(jobs)} 条 · 最多 2 个标签并行')
             if not auto_start:
                 completed = sum(row.get('status') == 'completed' for row in record['items'])
                 self.preview_config = None
@@ -548,62 +555,12 @@ class BatchPublisher(Publisher):
     def run_cli(self, arguments, action):
         if action not in {"批量发布", "批量保存草稿", "批量定时发表"}:
             return super().run_cli(arguments, action)
-        if self.manifest.get('parallel_tabs', 1) > 1:
-            return self.run_parallel(action)
-        final_code = 0
-        completed = 0
-        log_path = None
-        try:
-            jobs = self.manifest["items"]
-            # Check history again while holding the account lock, closing the
-            # race between two windows that prepared their previews together.
-            previous = prior_attempts()
-            if any(item["fingerprint"] in previous for item in jobs):
-                raise RuntimeError("另一个批次已处理相同内容，请核对历史记录后更新队列。")
-            for index, item in enumerate(jobs):
-                if self.stop_requested.is_set():
-                    break
-                item["status"] = "running"
-                self.save_manifest()
-                self.events.put(("batch_row", (index, "正在处理", f"正在处理 {index + 1}/{len(jobs)}：{Path(item['file']).name}")))
-                args = ["upload-video", "--account", self.manifest["account"], "--file", item["file"], "--title", item["title"], "--desc", item.get("publish_desc", description_with_tags(item)), "--tags", "", "--headed"]
-                args.extend(option_arguments(self.manifest["options"], item["schedule"]))
-                args.extend(["--short-title", item["short_title"] or item["title"]])
-                if self.manifest["draft"]:
-                    args.append("--draft")
-                code, log_path = self.execute_cli(args, f"{action} {index + 1}/{len(jobs)}")
-                output = log_path.read_text(encoding="utf-8") if log_path else ""
-                evidence = "视频草稿保存成功" if self.manifest["draft"] else "视频发布成功"
-                item["log"] = str(log_path) if log_path else None
-                item["returncode"] = code
-                if code == 0 and evidence in output:
-                    item["status"] = "completed"
-                    completed += 1
-                    label = "草稿已保存" if self.manifest["draft"] else "工具确认已定时" if item["schedule"] else "工具确认已发布"
-                else:
-                    known_failure = code != 0 and failed_before_submit(log_path)
-                    item["status"] = "failed_before_submit" if known_failure else "unknown"
-                    label = "设置失败，未发表" if known_failure else "失败 / 结果待核对"
-                    final_code = 1
-                item["finished_at"] = datetime.now().astimezone().isoformat()
-                self.save_manifest()
-                self.events.put(("batch_row", (index, label, f"本批已完成 {completed}/{len(jobs)} 条")))
-                if final_code:
-                    self.events.put(("log", "批次已停止。请先核对视频号后台，确认本条结果后再处理后续视频。\n"))
-                    break
-            self.batch_results = f"本批完成 {completed}/{len(jobs)} 条" + (" · 已按要求停止" if self.stop_requested.is_set() else "")
-        except Exception as exc:
-            final_code = 1
-            self.events.put(("log", f"批次异常，已停止：{exc}\n"))
-            self.batch_results = f"批次中断，已完成 {completed} 条 · 请核对记录"
-        finally:
-            self.events.put(("log", f"批次记录：{self.manifest_path}\n"))
-            self.events.put(("done", (final_code, log_path, action)))
+        return self.run_parallel(action)
 
     def request_stop(self):
         self.stop_requested.set()
         self.stop_button.configure(state="disabled")
-        self.status.set("已请求停止 · 当前最多 5 条结束后不再补入新任务")
+        self.status.set("已请求停止 · 当前最多 2 条结束后暂停")
 
     def run_parallel(self, action):
         from channels_parallel import ParallelPublisher
@@ -611,18 +568,20 @@ class BatchPublisher(Publisher):
         try:
             runner = ParallelPublisher(self.manifest_path, record=self.manifest,
                                        event=lambda kind, payload: self.events.put((kind, payload)),
-                                       stop=self.stop_requested, tabs=self.manifest.get('parallel_tabs', 5))
+                                       stop=self.stop_requested, tabs=self.manifest.get('parallel_tabs', 2))
             code = asyncio.run(runner.run(acquire_lock=False))
         except Exception as exc:
             self.events.put(('log', f'并行批次停止：{exc}\n'))
         finally:
             completed = sum(row.get('status') == 'completed' for row in self.manifest['items'])
             self.batch_results = f'本批完成 {completed}/{len(self.manifest["items"])} 条'
-            if self.manifest.get('status') == 'daily_limit_reached':
-                self.batch_results += ' · 已达到今日单账号20条上限，剩余队列明天可继续'
+            if self.manifest.get('status') == 'paused':
+                self.batch_results += ' · 队列已暂停'
             self.events.put(('done', (code, None, action)))
 
     def on_event(self, kind, payload):
+        if kind == 'batch_wait' and not self.stop_requested.is_set():
+            self.status.set(payload)
         if kind == "batch_row":
             index, label, status = payload
             self.tree.set(str(index), "status", label)
@@ -635,8 +594,7 @@ class BatchPublisher(Publisher):
         if action in {"批量发布", "批量保存草稿", "批量定时发表"}:
             self.stop_button.configure(state="disabled")
             self.sheet_box.configure(state="readonly")
-            limited = getattr(self, 'manifest', {}).get('status') == 'daily_limit_reached'
-            self.status.set((self.batch_results or "批次已结束") + (" · 请核对视频号后台" if code and not limited else ""))
+            self.status.set((self.batch_results or "批次已结束") + (" · 请检查日志" if code else ""))
 
     def current_config(self):
         return (self.folder.get(), self.table_path.get(), self.sheet.get(), self.series.get(), self.start_number.get(), self.count.get(), self.filenames.get(), self.options.snapshot())

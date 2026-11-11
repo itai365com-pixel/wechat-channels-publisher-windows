@@ -16,7 +16,7 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 from publisher_options import OptionsPanel, option_arguments, options_summary, planned_times, scrollable_panel, initialize_desktop_app, short_title_issues
 from publisher_lock import AccountLock
-from daily_publish_limit import DailyPublishBudget, DailyPublishLimitReached
+from daily_publish_limit import DailyPublishBudget, PublishLimitReached
 
 ROOT = Path(__file__).resolve().parent
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -36,9 +36,9 @@ class Publisher:
         self.status = tk.StringVar(value="就绪 · 选择视频后填写发布内容")
         self.file_info = tk.StringVar(value="支持 MP4、MOV 等视频文件")
         self.login_status = tk.StringVar(value="")
-        self.quota_status = tk.StringVar(value="每日上限 20 条/账号（曼谷时间）")
+        self.quota_status = tk.StringVar(value="每账号每小时 6 条 · 每日 36 条（曼谷时间）")
         self.controls: list = []
-        root.title("视频号发布助手 v1.11.1")
+        root.title("视频号发布助手 v1.12.0")
         root.geometry(f"960x{min(940, root.winfo_screenheight() - 100)}")
         root.minsize(760, 760)
         root.configure(bg="#f3f6f5")
@@ -148,14 +148,13 @@ class Publisher:
         self.login_status.set("已保存登录会话 · 发布前会自动检查有效性" if saved else "尚未保存登录会话 · 请先扫码登录")
         try:
             usage = DailyPublishBudget(ROOT).usage(self.account.get())
-            self.quota_status.set(f'每日上限 {usage["limit"]} 条/账号 · 今日已记 {usage["used"]} 次 · 剩余 {usage["remaining"]} 次（曼谷时间）')
+            self.quota_status.set(f'近 60 分钟 {usage["hourly_used"]}/{usage["hourly_limit"]} · 今日 {usage["used"]}/{usage["limit"]}（曼谷）')
         except Exception as exc:
-            self.quota_status.set(f'无法读取每日额度，已阻止提交：{exc}')
+            self.quota_status.set(f'无法读取提交额度：{exc}')
 
     def check_daily_capacity(self):
         usage = DailyPublishBudget(ROOT).usage(self.account.get())
-        if not usage['remaining']:
-            raise DailyPublishLimitReached(f'今日已记 {usage["used"]} 次提交，已达到单账号 {usage["limit"]} 条上限（曼谷时间）。剩余队列请明天继续。')
+        DailyPublishBudget.require_capacity(usage)
         return usage
 
     def open_wordmotion(self):
@@ -227,7 +226,7 @@ class Publisher:
                 self.check_daily_capacity()
             settings = self.options.snapshot()
             schedules = planned_times(settings, 1, draft=draft)
-        except (ValueError, DailyPublishLimitReached) as exc:
+        except (ValueError, PublishLimitReached) as exc:
             messagebox.showwarning("请检查发布设置", str(exc), parent=self.root)
             return
         action = "保存草稿" if draft else "定时发表" if schedules[0] else "立即发布"

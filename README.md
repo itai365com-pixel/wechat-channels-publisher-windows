@@ -2,9 +2,9 @@
 
 在 Windows 上从 Excel / CSV 导入文案，批量上传和定时发布微信视频号视频，核对后台发布结果，并生成近 7 天播放 Top10 分析报告。
 
-<a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.11.1/wechat-channels-publisher-windows-v1.11.1-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载 Windows x64 安装包"></a>
+<a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.0/wechat-channels-publisher-windows-v1.12.0-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载 Windows x64 安装包"></a>
 
-适用于 Windows 10 / 11 x64。[版本说明与校验文件](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.11.1)
+适用于 Windows 10 / 11 x64。[版本说明与校验文件](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.12.0)
 
 <a href="docs/screenshots/batch-publishing.png"><img src="docs/screenshots/batch-publishing.png" width="48%" alt="批量发布界面，显示示例文案与待发布队列"></a> <a href="docs/screenshots/top10-analysis.png"><img src="docs/screenshots/top10-analysis.png" width="48%" alt="Top10 分析报告，显示示例播放数据与优化建议"></a>
 
@@ -30,9 +30,11 @@ ep002.mp4,第二条短标题,这里填写第二条视频简介
 
 ## 批量发布和内容分析
 
-- 支持最多 5 个标签并行上传。封面先就绪的作品优先提交，每次提交一条。
+- 支持最多 2 个标签并行上传。封面先就绪的作品优先提交，每次提交一条。
 - 可保存草稿、立即发表或定时发表。批次间隔可设为 1、3、5 分钟，时间按曼谷时区填写。
-- 单个本地账号每天最多提交 20 条，按曼谷日期计算。草稿不计入；提交结果未知时保留额度，并先核对后台再处理。
+- 单个本地账号最近 60 分钟最多提交 6 条，每个曼谷自然日最多提交 36 条。草稿不计入额度，结果未知的提交保留额度。
+- 批次每轮最多 6 条，轮次结束后至少等 1 小时再继续。达到当天额度时，等曼谷时间次日且满足轮间等待后自动续发。等待期间可最小化窗口，请保持电脑和程序运行。
+- 点击「暂停队列」后，已开始的条目结束即暂停。重新打开程序时，可通过「继续已有队列」恢复原队列及轮间等待。平台定时发表仍使用预览时间，错过提交时间时暂停并提示检查。
 - 点击「近7天Top10与分析」读取最近 7 个自然日内发表的作品，按读取时的累计播放量排名。工具只为入榜作品读取详情，生成包含完播、平均观看、留存采样、播放来源和优化建议的本地 HTML 报告。
 - 「词映官网」按钮可打开 [词映](https://www.tugei.com/)。
 
