@@ -11,12 +11,17 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 from batch_table import read_tables, records_from_rows, match_records, description_with_tags, select_records, video_series, resolve_series
+from daily_publish_limit import BANGKOK, SUBMIT_PHASES
+from channels_first_comments import FirstCommentQueue, FirstCommentWindow
+from publisher_preferences import first_directory, load_batch_paths, remember_batch_paths
 from video_channels_gui import Publisher, ROOT
-from publisher_options import OptionsPanel, options_summary, planned_times, scrollable_panel, initialize_desktop_app, short_title_issues
+from publisher_options import OptionsPanel, options_summary, planned_times, scrollable_panel, initialize_desktop_app, short_title_issues, normalize_short_title
 
 DEFAULT_FOLDER = Path.home() / "Videos"
 BATCH_DIR = ROOT / ".local" / "gui" / "batches"
 LOG_DIR = ROOT / ".local" / "gui" / "logs"
+PATH_PREFS = ROOT / ".local" / "gui" / "batch-paths.json"
+FIRST_COMMENT_DIR = ROOT / ".local" / "gui" / "first-comments"
 
 
 def failed_before_submit(log_path):
@@ -33,57 +38,106 @@ def failed_before_submit(log_path):
     return any(line.strip() in {"未找到“声明原创”复选框，已停止发布", "封面在等待时间内未生成完成，尚未点击发表"} or line.strip().startswith(("原创声明确认失败，尚未点击发表：", "短标题校验失败，尚未点击发表：", "指定合集未成功选择，尚未点击发表：", "指定合集未成功选择，已停止发布：")) for line in content.splitlines())
 
 
-def fingerprint(record, account, draft):
-    video_hash = hashlib.sha256()
-    with Path(record["file"]).open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            video_hash.update(chunk)
+FINISHED_ITEMS = frozenset({'completed', 'skipped_completed'})
+
+
+def video_digest(file):
+    with Path(file).open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+def fingerprint(record, account, draft, *, digest=None):
+    digest = digest or video_digest(record['file'])
     copy = {"short_title": record.get("short_title") or record.get("title", ""), "description": record.get("publish_desc", description_with_tags(record))}
-    return hashlib.sha256(json.dumps([account, draft, video_hash.hexdigest(), copy], ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return hashlib.sha256(json.dumps([account, draft, digest, copy], ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def prior_attempts(*, with_evidence=False):
+def verified_completion(record, row):
+    return (row.get('status') == 'completed' and not record.get('requires_backend_audit') and
+            ((row.get('platform_verification') or {}).get('verified') is True or
+             row.get('phase') == 'confirmed_on_platform' or bool(record.get('collection_verification'))))
+
+
+def publication_history(account, draft, *, directories=None, exclude=None):
     result = {}
-    for path in BATCH_DIR.glob("*.json"):
-        # Unreadable history must not silently disable duplicate protection.
-        data = json.loads(path.read_text(encoding="utf-8"))
-        for row in data.get("items", []):
-            if row.get("status") == "unknown" and row.get("returncode") == 1 and failed_before_submit(row.get("log")):
+    for directory in directories if directories is not None else (BATCH_DIR,):
+        for path in directory.glob('*.json'):
+            if path.resolve() == exclude:
                 continue
-            if row.get("status") in {"completed", "running", "unknown"}:
-                status = row['status']
-                evidence = {'status':status, 'manifest':str(path),
-                    'confirmed': status == 'completed' and not data.get('requires_backend_audit') and
-                    ((row.get('platform_verification') or {}).get('verified') is True or
-                     row.get('phase') == 'confirmed_on_platform' or bool(data.get('collection_verification')))}
-                previous = result.get(row['fingerprint'])
-                priority = {'completed':1, 'running':2, 'unknown':3}
-                if previous is None or priority[status] > priority[previous['status']] or (priority[status] == priority[previous['status']] and evidence['confirmed']):
-                    result[row['fingerprint']] = evidence
-    return result if with_evidence else {key:value['status'] for key,value in result.items()}
+            record = json.loads(path.read_text(encoding='utf-8'))
+            if str(record.get('account', '')).strip().casefold() != account.strip().casefold() or bool(record.get('draft')) != draft:
+                continue
+            for row in record.get('items', []):
+                status = row.get('status')
+                if status not in ('completed', 'running', 'unknown') and row.get('phase') not in SUBMIT_PHASES:
+                    continue
+                if (status == 'unknown' and row.get('returncode') == 1 and row.get('phase') not in SUBMIT_PHASES
+                        and not row.get('submit_clicked_at') and failed_before_submit(row.get('log'))):
+                    continue
+                evidence = {'manifest':str(path), 'confirmed':verified_completion(record, row),
+                            'at':(row.get('platform_verification') or {}).get('verified_at') or row.get('finished_at')}
+                keys = [('fingerprint', row.get('fingerprint')), ('video', row.get('video_sha256')),
+                        ('path', str(Path(row['file']).resolve()).casefold())]
+                for key in keys:
+                    if key[1] and (key not in result or not evidence['confirmed']):
+                        result[key] = evidence
+    return result
+
+
+def previous_completion(history, file, digest, key):
+    exact = [history.get(('video', digest)), history.get(('fingerprint', key))]
+    path_match = history.get(('path', str(Path(file).resolve()).casefold()))
+    if any(match and not match['confirmed'] for match in [*exact, path_match]):
+        raise ValueError(f'{Path(file).name} 有发布结果待核对，请先确认视频号后台记录。')
+    confirmed = next((match for match in exact if match), None)
+    if not confirmed and path_match:
+        raise ValueError(f'{Path(file).name} 的路径已有发布记录，但无法确认是同一文件，请先核对。')
+    return confirmed
 
 
 def filter_previously_completed(items, account, draft):
-    previous = prior_attempts(with_evidence=True)
-    pending, skipped = [], []
+    history = publication_history(account, draft)
+    pending, skipped, seen = [], [], set()
     for item in items:
-        key = fingerprint(item, account, draft)
-        old = previous.get(key)
-        if old and old['confirmed']:
+        digest = video_digest(item['file'])
+        key = fingerprint(item, account, draft, digest=digest)
+        old = previous_completion(history, item['file'], digest, key)
+        if old:
             skipped.append({'file':item['file'], 'fingerprint':key, 'manifest':old['manifest']})
-        elif old:
-            raise ValueError(f"{Path(item['file']).name} 已有运行中或结果待核对的记录，不能自动重传；请先核对后台结果。")
+        elif digest in seen:
+            raise ValueError(f'{Path(item["file"]).name} 与本批另一视频内容相同，请只选择一份。')
         else:
-            pending.append({**item, 'fingerprint':key})
+            seen.add(digest)
+            pending.append({**item, 'fingerprint':key, 'video_sha256':digest})
     return pending, skipped
+
+
+def last_publish_batch(account):
+    latest = None
+    for path in BATCH_DIR.glob('*.json'):
+        record = json.loads(path.read_text(encoding='utf-8'))
+        if record.get('draft') or str(record.get('account', '')).strip().casefold() != account.strip().casefold():
+            continue
+        for row in record.get('items', []):
+            if row.get('status') not in ('completed', 'unknown', 'running', 'failed_before_submit'):
+                continue
+            value = row.get('finished_at') or (row.get('platform_verification') or {}).get('verified_at') or row.get('started_at') or record.get('created_at')
+            if not value:
+                continue
+            stamp = datetime.fromisoformat(value)
+            stamp = stamp.astimezone(BANGKOK)
+            if latest is None or stamp > latest[0]:
+                latest = (stamp, path, record)
+    return latest
 
 
 class BatchPublisher(Publisher):
     def __init__(self, root):
-        self.folder = tk.StringVar(root, value=str(DEFAULT_FOLDER))
-        sources = sorted(p for p in DEFAULT_FOLDER.glob("*") if p.suffix.lower() in {".xlsx", ".csv", ".tsv"})
-        self.table_path = tk.StringVar(root, value=str(sources[0]) if len(sources) == 1 else "")
-        self.sheet = tk.StringVar(root)
+        self.path_prefs = load_batch_paths(PATH_PREFS)
+        self.folder = tk.StringVar(root, value=self.path_prefs.get("folder", str(DEFAULT_FOLDER)))
+        self.table_path = tk.StringVar(root, value=self.path_prefs.get("table", ""))
+        self.sheet = tk.StringVar(root, value=self.path_prefs.get("sheet", ""))
+        self.first_comment_window = None
         self.start_number = tk.StringVar(root, value="")
         self.count = tk.StringVar(root, value="")
         self.series = tk.StringVar(root, value="自动识别")
@@ -96,21 +150,22 @@ class BatchPublisher(Publisher):
         self.last_preview_context = None
         self.last_preview_selection = None
         super().__init__(root)
-        root.title("视频号批量发布助手 v1.12.0")
+        root.title("视频号批量发布助手 v1.12.10")
         root.geometry(f"{min(1420, root.winfo_screenwidth() - 100)}x{min(960, root.winfo_screenheight() - 100)}")
         root.minsize(1060, 850)
         root.after(300, self.preview)
 
     def make_ui(self):
         self.configure_style()
-        panel = scrollable_panel(self.root, (26, 20))
+        panel = scrollable_panel(self.root, (26, 12))
         panel.columnconfigure(1, weight=1)
         panel.rowconfigure(14, weight=1)
         heading = ttk.Frame(panel)
-        heading.grid(row=0, column=0, columnspan=3, sticky='ew')
-        ttk.Label(heading, text="视频号批量发布", style="Heading.TLabel").pack(side='left')
-        ttk.Button(heading, text='词映官网', command=self.open_wordmotion).pack(side='right')
-        ttk.Label(panel, text="最多 2 个标签并行上传，每轮最多 6 条，完成后等 1 小时自动继续。", style="Muted.TLabel").grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 16))
+        heading.grid(row=0, column=0, columnspan=3, sticky='ew', pady=(0, 10))
+        heading.columnconfigure(1, weight=1)
+        ttk.Label(heading, text="视频号批量发布", style="Heading.TLabel").grid(row=0, column=0, sticky='w')
+        ttk.Label(heading, text="最多 2 个标签 · 每轮最多 6 条 · 等 1 小时自动续发", style="Muted.TLabel").grid(row=0, column=1, sticky='w', padx=(14, 8))
+        ttk.Button(heading, text='词映官网', command=self.open_wordmotion).grid(row=0, column=2, sticky='e')
         accounts = ttk.Frame(panel)
         accounts.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(0, 5))
         ttk.Label(accounts, text="视频号账号", style="Field.TLabel").pack(side="left", padx=(0, 12))
@@ -140,8 +195,15 @@ class BatchPublisher(Publisher):
             button = ttk.Button(field, text='选择…', command=callback)
             button.grid(row=0, column=2, padx=(8, 0))
             self.controls.extend([entry, button])
-        options = ttk.Frame(panel)
-        options.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(10, 10))
+        ttk.Style(self.root).configure('Preview.TButton', padding=(12, 3))
+        preview = ttk.Button(paths, text="读取表格 / 更新预览", command=self.preview, style='Preview.TButton')
+        preview.grid(row=0, column=2, padx=(10, 0), sticky='e')
+        self.controls.append(preview)
+        selection = ttk.Frame(panel)
+        selection.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(4, 8))
+        selection.columnconfigure(2, weight=1)
+        options = ttk.Frame(selection)
+        options.grid(row=0, column=0, sticky="w")
         ttk.Label(options, text="工作表").pack(side="left")
         self.sheet_box = ttk.Combobox(options, textvariable=self.sheet, state="readonly", width=17)
         self.sheet_box.pack(side="left", padx=(8, 18))
@@ -156,17 +218,25 @@ class BatchPublisher(Publisher):
         count = ttk.Spinbox(options, from_=1, to=99999, textvariable=self.count, width=5)
         count.pack(side="left", padx=5)
         ttk.Label(options, text="（留空=全部）").pack(side="left")
-        preview = ttk.Button(options, text="读取表格 / 更新预览", command=self.preview)
-        preview.pack(side="right")
-        self.controls.extend([self.sheet_box, self.series_box, start, count, preview])
-        named = ttk.Frame(panel)
-        named.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(0, 9))
-        named.columnconfigure(1, weight=1)
-        ttk.Label(named, text="指定文件（可选）").grid(row=0, column=0, padx=(0, 8))
-        names_entry = ttk.Entry(named, textvariable=self.filenames)
-        names_entry.grid(row=0, column=1, sticky="ew")
+        self.controls.extend([self.sheet_box, self.series_box, start, count])
+        ttk.Label(selection, text="指定文件（可选）").grid(row=0, column=1, padx=(14, 8))
+        names_entry = ttk.Entry(selection, textvariable=self.filenames, width=1)
+        names_entry.grid(row=0, column=2, sticky="ew")
         self.controls.append(names_entry)
-        ttk.Label(named, text="支持 z001-z010、ep216-ep277 或文件名列表；纯数字范围按当前系列匹配，填写后优先使用这里。", style="Muted.TLabel").grid(row=1, column=1, sticky="w", pady=(4, 0))
+        # Keep the hint separate from the variable used for file matching.
+        names_hint = ttk.Label(names_entry, text="如 ep001-ep010、1-10 或文件名列表（优先匹配）",
+                               foreground='#6b7774', background='white', cursor='xterm',
+                               font=('Microsoft YaHei UI', 9), anchor='w')
+
+        def update_names_hint(*_):
+            if self.filenames.get():
+                names_hint.place_forget()
+            else:
+                names_hint.place(x=9, rely=0.5, relwidth=1, width=-18, anchor='w')
+
+        names_hint.bind('<Button-1>', lambda _: names_entry.focus_set())
+        self.filenames.trace_add('write', update_names_hint)
+        update_names_hint()
         ttk.Label(panel, textvariable=self.summary, style="Muted.TLabel").grid(row=8, column=0, columnspan=3, sticky="w", pady=(0, 7))
 
         columns = ("number", "file", "short_title", "desc", "when", "status")
@@ -203,6 +273,9 @@ class BatchPublisher(Publisher):
         resume = ttk.Button(actions, text="继续已有队列", command=self.choose_resume)
         resume.pack(side="left", padx=(10, 0))
         self.controls.append(resume)
+        history = ttk.Button(actions, text="上次发布记录", command=self.show_last_publish)
+        history.pack(side="left", padx=(10, 0))
+        self.controls.append(history)
         publish = ttk.Button(actions, text="开始批量发布", style="Publish.TButton", command=lambda: self.publish_batch(False))
         publish.pack(side="right", padx=(10, 0))
         self.options.scheduled.trace_add("write", lambda *_: publish.configure(text="批量提交定时发表" if self.options.scheduled.get() else "开始批量发布"))
@@ -218,22 +291,34 @@ class BatchPublisher(Publisher):
         self.log.grid(row=14, column=0, columnspan=3, sticky="ew")
         self.append_log("就绪。原视频和表格会保留在原位置；选中一条可查看完整文案。\n")
 
+    def remember_paths(self):
+        try:
+            self.path_prefs = remember_batch_paths(PATH_PREFS, self.folder.get().strip(), self.table_path.get().strip(), self.sheet.get())
+        except OSError as exc:
+            self.append_log(f"无法保存上次使用的路径：{exc}\n")
+
     def choose_folder(self):
-        selected = filedialog.askdirectory(parent=self.root, title="选择待发布视频文件夹", initialdir=self.folder.get())
+        start = first_directory(self.folder.get().strip(), self.path_prefs.get("folder"), DEFAULT_FOLDER)
+        selected = filedialog.askdirectory(parent=self.root, title="选择待发布视频文件夹", initialdir=start)
         if selected:
             self.folder.set(selected)
             self.reset_selection()
             self.series.set('自动识别')
             self.use_folder_table()
+            self.remember_paths()
             self.preview()
 
     def choose_table(self):
-        selected = filedialog.askopenfilename(parent=self.root, title="选择发布文案表格", initialdir=self.folder.get(), filetypes=[("文案表格", "*.xlsx *.csv *.tsv"), ("所有文件", "*.*")])
+        current = self.table_path.get().strip()
+        start = first_directory(Path(current).parent if current and Path(current).is_absolute() else None,
+                                self.path_prefs.get("table_dir"), self.folder.get().strip(), DEFAULT_FOLDER)
+        selected = filedialog.askopenfilename(parent=self.root, title="选择发布文案表格", initialdir=start, filetypes=[("文案表格", "*.xlsx *.csv *.tsv"), ("所有文件", "*.*")])
         if selected:
             self.table_path.set(selected)
             self.sheet.set("")
             self.series.set('自动识别')
             self.reset_selection()
+            self.remember_paths()
             self.preview()
 
     def reset_selection(self):
@@ -257,8 +342,14 @@ class BatchPublisher(Publisher):
         for key in self.tree.get_children():
             self.tree.delete(key)
         try:
-            if not Path(self.table_path.get()).is_file():
+            folder = self.folder.get().strip()
+            table = self.table_path.get().strip()
+            if not folder or not Path(folder).is_dir():
+                raise ValueError('视频文件夹不存在，请重新选择。')
+            if not table:
                 self.use_folder_table()
+            elif not Path(table).is_file():
+                raise ValueError('文案表格不存在，请重新选择。')
             if not self.table_path.get():
                 raise ValueError('请先选择对应系列的文案表格；目录有多份表格时不会自动猜选。')
             self.tables = read_tables(self.table_path.get())
@@ -267,6 +358,7 @@ class BatchPublisher(Publisher):
             if self.sheet.get() not in sheets:
                 self.sheet.set(sheets[0])
             records = records_from_rows(self.tables[self.sheet.get()])
+            self.remember_paths()
             groups = video_series(self.folder.get())
             self.series_box['values'] = ['自动识别'] + [prefix or '（纯数字）' for prefix in groups]
             choice = self.series.get()
@@ -303,6 +395,11 @@ class BatchPublisher(Publisher):
             schedules = planned_times(settings, len(self.items))
             import cv2
             for index, item in enumerate(self.items):
+                source_title = item.get("short_title") or item["title"]
+                title = normalize_short_title(source_title)
+                if title != source_title:
+                    item["short_title"] = title
+                    self.append_log(f'{Path(item["file"]).name}：短标题中的逗号已替换为空格。\n')
                 if not item["title"]:
                     raise ValueError(f"表格第 {item['source_row']} 行缺少标题。")
                 capture = None
@@ -383,7 +480,7 @@ class BatchPublisher(Publisher):
         description.insert("1.0", item.get("publish_desc", item["desc"]))
         ttk.Label(panel, text="仅修改本次队列，原表格不变。重新读取表格会恢复表格原文。", style="Muted.TLabel").grid(row=4, column=0, sticky="w")
         def save():
-            value = title.get().strip()
+            value = normalize_short_title(title.get())
             issues = short_title_issues(value)
             if not value or issues:
                 messagebox.showwarning("短标题需修改", "\n".join(issues) if issues else "短标题不能为空。", parent=dialog)
@@ -488,6 +585,63 @@ class BatchPublisher(Publisher):
         temp.write_text(json.dumps(self.manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         temp.replace(self.manifest_path)
 
+    def show_first_comments(self):
+        try:
+            queue = FirstCommentQueue(FIRST_COMMENT_DIR, BATCH_DIR, self.account.get())
+            active = self.first_comment_window
+            if active and active.window.winfo_exists():
+                if active.queue.account == queue.account:
+                    active.refresh()
+                    active.window.lift()
+                    return
+                active.window.destroy()
+            self.first_comment_window = FirstCommentWindow(self.root, queue, self.path_prefs.get("table_dir"))
+        except (OSError, ValueError) as exc:
+            messagebox.showerror('无法打开首评队列', str(exc), parent=self.root)
+
+    def show_last_publish(self):
+        try:
+            latest = last_publish_batch(self.account.get())
+        except (OSError, ValueError) as exc:
+            messagebox.showerror('无法读取发布记录', str(exc), parent=self.root)
+            return
+        if latest is None:
+            messagebox.showinfo('上次发布记录', '当前账号还没有批量发布记录。', parent=self.root)
+            return
+
+        stamp, path, record = latest
+        window = tk.Toplevel(self.root)
+        window.title('上次发布记录')
+        window.transient(self.root)
+        window.geometry('920x480')
+        panel = ttk.Frame(window, padding=12)
+        panel.pack(fill='both', expand=True)
+        rows = record['items']
+        verified = sum(verified_completion(record, row) for row in rows)
+        skipped = sum(row.get('status') == 'skipped_completed' for row in rows)
+        ttk.Label(panel, text=f'{self.account.get()} · {stamp:%Y-%m-%d %H:%M}（曼谷） · 本批核验 {verified} 条 · 已发布跳过 {skipped} 条 · 共 {len(rows)} 条').pack(anchor='w')
+        ttk.Label(panel, text=path.name, style='Muted.TLabel').pack(anchor='w', pady=(3, 8))
+        frame = ttk.Frame(panel)
+        frame.pack(fill='both', expand=True)
+        table = ttk.Treeview(frame, columns=('file', 'title', 'status', 'time'), show='headings')
+        for key, label, width in [('file','视频文件',150), ('title','短标题',280), ('status','发布状态',165), ('time','记录时间（曼谷）',170)]:
+            table.heading(key, text=label)
+            table.column(key, width=width)
+        scrollbar = ttk.Scrollbar(frame, orient='vertical', command=table.yview)
+        table.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side='right', fill='y')
+        table.pack(side='left', fill='both', expand=True)
+        labels = {'skipped_completed':'已发布，已跳过', 'completed':'待核对', 'pending':'待发布',
+                  'running':'处理中 / 待核对', 'unknown':'结果待核对', 'failed_before_submit':'提交前失败'}
+        for row in rows:
+            proof = row.get('platform_verification') or {}
+            earlier = row.get('previous_completion') or {}
+            value = proof.get('verified_at') or row.get('finished_at') or row.get('started_at') or earlier.get('at')
+            when = datetime.fromisoformat(value).astimezone(BANGKOK).strftime('%Y-%m-%d %H:%M') if value else ''
+            status = ('定时发表已核验' if row.get('schedule') else '发表已核验') if verified_completion(record, row) else labels.get(row.get('status'), '待核对')
+            table.insert('', 'end', values=(Path(row['file']).name, row.get('short_title') or row.get('title', ''), status, when))
+        ttk.Button(panel, text='关闭', command=window.destroy).pack(anchor='e', pady=(8, 0))
+
     def choose_resume(self):
         path = filedialog.askopenfilename(parent=self.root, title='选择未完成的发布队列',
                                          initialdir=BATCH_DIR, filetypes=[('发布队列', '*.json')])
@@ -505,9 +659,9 @@ class BatchPublisher(Publisher):
             checker = ParallelPublisher(path, record=record)
             jobs = checker.preflight()
             if not jobs:
-                raise ValueError('这份队列没有可继续的条目。')
+                raise ValueError('这份队列没有可继续的条目，视频已完成或已有后台核验记录。')
             if confirm:
-                completed = sum(row.get('status') == 'completed' for row in record['items'])
+                completed = sum(row.get('status') in FINISHED_ITEMS for row in record['items'])
                 question = f'账号：{record["account"]}\n已完成 {completed} 条，将跳过。\n继续未完成 {len(jobs)} 条。\n\n' + options_summary(record['options'])
                 question += '\n\n最多使用 2 个标签上传，按额度和队列中保存的时间继续。确认继续？'
                 if not messagebox.askyesno('继续已有队列', question, parent=self.root):
@@ -530,13 +684,13 @@ class BatchPublisher(Publisher):
             for key in self.tree.get_children():
                 self.tree.delete(key)
             for index, row in enumerate(self.items):
-                label = '已发布' if row.get('status') == 'completed' else '待重试' if row.get('status') == 'failed_before_submit' else '待发布'
+                label = {'completed':'已发布', 'skipped_completed':'已发布，已跳过', 'failed_before_submit':'待重试'}.get(row.get('status'), '待发布')
                 self.tree.insert('', 'end', iid=str(index), values=(index + 1, Path(row['file']).name,
                     row.get('short_title') or row['title'], row.get('publish_desc', row.get('desc', '')),
                     row.get('schedule') or '立即发表', label))
             self.summary.set(f'继续队列：{path.name} · 待处理 {len(jobs)} 条 · 最多 2 个标签并行')
             if not auto_start:
-                completed = sum(row.get('status') == 'completed' for row in record['items'])
+                completed = sum(row.get('status') in FINISHED_ITEMS for row in record['items'])
                 self.preview_config = None
                 self.batch_results = f'本批已核验 {completed}/{len(record["items"])} 条'
                 self.summary.set(f'已载入队列：{path.name} · 已完成 {completed} 条 · 待处理 {len(jobs)} 条')
@@ -573,10 +727,17 @@ class BatchPublisher(Publisher):
         except Exception as exc:
             self.events.put(('log', f'并行批次停止：{exc}\n'))
         finally:
-            completed = sum(row.get('status') == 'completed' for row in self.manifest['items'])
+            completed = sum(row.get('status') in FINISHED_ITEMS for row in self.manifest['items'])
             self.batch_results = f'本批完成 {completed}/{len(self.manifest["items"])} 条'
             if self.manifest.get('status') == 'paused':
                 self.batch_results += ' · 队列已暂停'
+            failed = [row for row in self.manifest['items'] if row.get('status') == 'failed_before_submit']
+            uncertain = [row for row in self.manifest['items'] if row.get('status') == 'unknown']
+            if uncertain:
+                self.batch_results += f' · {len(uncertain)} 条发表结果待核对'
+            elif failed:
+                cause = next((row for row in failed if '安全停止' not in row.get('error', '')), failed[0])
+                self.batch_results += f' · {Path(cause["file"]).name} 提交前失败：{cause.get("error", "请检查日志")}'
             self.events.put(('done', (code, None, action)))
 
     def on_event(self, kind, payload):
@@ -586,6 +747,9 @@ class BatchPublisher(Publisher):
             index, label, status = payload
             self.tree.set(str(index), "status", label)
             self.status.set(status)
+            view = self.first_comment_window
+            if view and view.window.winfo_exists() and '后台' in label:
+                view.refresh()
 
     def task_finished(self, code, action):
         super().task_finished(code, action)

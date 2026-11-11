@@ -7,12 +7,19 @@ BANGKOK = timezone(timedelta(hours=7), "Asia/Bangkok")
 TIME_FORMAT = "%Y-%m-%d %H:%M"
 
 
+def normalize_short_title(value):
+    """Apply the platform's comma-to-space guidance to a short title."""
+    return value.replace(",", " ").replace("，", " ").strip()
+
+
 def short_title_issues(value):
     issues = []
     # The current live form rejects the IPA schwa in ep206's short title.
     # Keep the source copy intact and let the user choose its replacement.
     if "ə" in value:
         issues.append("视频号当前不接受短标题字符 ə，请改成文字说明")
+    if "," in value or "，" in value:
+        issues.append("视频号短标题不接受逗号，请替换为空格")
     return issues
 
 
@@ -85,46 +92,49 @@ def options_summary(settings, schedules=None):
 
 class OptionsPanel(ttk.LabelFrame):
     def __init__(self, parent, batch=False):
-        super().__init__(parent, text="发布设置", padding=(10, 8))
+        super().__init__(parent, text="发布设置", padding=(8, 5))
         self.collection = tk.StringVar(self)
         self.original = tk.BooleanVar(self, value=False)
         self.label = tk.StringVar(self, value="不设置")
         self.scheduled = tk.BooleanVar(self, value=False)
         self.first = tk.StringVar(self, value=(datetime.now(BANGKOK) + timedelta(hours=3)).strftime(TIME_FORMAT))
         self.interval = tk.StringVar(self, value="1")
-        self.controls = []
         self.columnconfigure(1, weight=1)
         ttk.Label(self, text="添加到合集").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        collection = ttk.Entry(self, textvariable=self.collection)
-        collection.grid(row=0, column=1, columnspan=4, sticky="ew", pady=(0, 6))
-        ttk.Label(self, text="填写视频号内已有合集的完整名称，留空则不添加。", style="Muted.TLabel").grid(row=1, column=0, columnspan=5, sticky="w", pady=(0, 6))
+        collection = ttk.Entry(self, textvariable=self.collection, width=12)
+        collection.grid(row=0, column=1, sticky="ew", padx=(0, 12))
         original = ttk.Checkbutton(self, text="声明原创", variable=self.original)
-        original.grid(row=2, column=0, columnspan=2, sticky="w")
-        ttk.Label(self, text="视频标注").grid(row=2, column=2, padx=(18, 8))
-        label = ttk.Combobox(self, textvariable=self.label, values=("不设置", "含AI生成内容", "内容为转载"), width=23)
-        label.grid(row=2, column=3, columnspan=2, sticky="ew")
-        ttk.Label(self, text="标注也可输入平台选项原文。", style="Muted.TLabel").grid(row=3, column=2, columnspan=3, sticky="w", padx=(18, 0), pady=(3, 7))
-        scheduled = ttk.Checkbutton(self, text="定时发表", variable=self.scheduled, command=self.toggle_schedule)
-        scheduled.grid(row=4, column=0, sticky="w")
-        ttk.Label(self, text="首条时间（曼谷 UTC+7）").grid(row=4, column=1, sticky="e", padx=(8, 8))
-        self.first_entry = ttk.Entry(self, textvariable=self.first, width=19)
-        self.first_entry.grid(row=4, column=2, columnspan=2, sticky="ew")
+        original.grid(row=0, column=2, sticky="w", padx=(0, 12))
+        scheduled = ttk.Checkbutton(self, text="定时发表", variable=self.scheduled)
+        scheduled.grid(row=0, column=3, sticky="w", padx=(0, 16))
+        ttk.Label(self, text="视频标注").grid(row=0, column=4, sticky="w", padx=(0, 8))
+        label = ttk.Combobox(self, textvariable=self.label, values=("不设置", "含AI生成内容", "内容为转载"), width=15)
+        label.grid(row=0, column=5, sticky="ew")
+
+        self.schedule_row = ttk.Frame(self)
+        self.schedule_row.grid(row=1, column=0, columnspan=6, sticky="w", pady=(6, 0))
+        ttk.Label(self.schedule_row, text="发表时间（曼谷 UTC+7）").pack(side="left", padx=(0, 8))
+        self.first_entry = ttk.Entry(self.schedule_row, textvariable=self.first, width=19)
+        self.first_entry.pack(side="left")
         self.interval_box = None
         if batch:
-            interval_frame = ttk.Frame(self)
-            interval_frame.grid(row=4, column=4, sticky="e", padx=(10, 0))
-            ttk.Label(interval_frame, text="间隔").pack(side="left")
-            self.interval_box = ttk.Combobox(interval_frame, textvariable=self.interval, values=("1", "3", "5"), state="readonly", width=3)
+            ttk.Label(self.schedule_row, text="间隔").pack(side="left", padx=(12, 0))
+            self.interval_box = ttk.Combobox(self.schedule_row, textvariable=self.interval, values=("1", "3", "5"), state="readonly", width=3)
             self.interval_box.pack(side="left", padx=4)
-            ttk.Label(interval_frame, text="分钟").pack(side="left")
-        ttk.Label(self, text="定时需提前超过 2 小时。批量保存草稿时不提交定时时间。", style="Muted.TLabel").grid(row=5, column=0, columnspan=5, sticky="w", pady=(5, 0))
+            ttk.Label(self.schedule_row, text="分钟").pack(side="left")
+        ttk.Label(self.schedule_row, text="须提前超过 2 小时", style="Muted.TLabel").pack(side="left", padx=(12, 0))
         self.controls = [collection, original, label, scheduled, self.first_entry]
         if self.interval_box is not None:
             self.controls.append(self.interval_box)
+        self.scheduled.trace_add("write", self.toggle_schedule)
         self.toggle_schedule()
 
-    def toggle_schedule(self):
+    def toggle_schedule(self, *_):
         enabled = bool(self.scheduled.get())
+        if enabled:
+            self.schedule_row.grid()
+        else:
+            self.schedule_row.grid_remove()
         self.first_entry.configure(state="normal" if enabled else "disabled")
         if self.interval_box is not None:
             self.interval_box.configure(state="readonly" if enabled else "disabled")

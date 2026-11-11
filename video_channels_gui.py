@@ -14,7 +14,7 @@ import webbrowser
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
-from publisher_options import OptionsPanel, option_arguments, options_summary, planned_times, scrollable_panel, initialize_desktop_app, short_title_issues
+from publisher_options import OptionsPanel, option_arguments, options_summary, planned_times, scrollable_panel, initialize_desktop_app, short_title_issues, normalize_short_title
 from publisher_lock import AccountLock
 from daily_publish_limit import DailyPublishBudget, PublishLimitReached
 
@@ -38,7 +38,7 @@ class Publisher:
         self.login_status = tk.StringVar(value="")
         self.quota_status = tk.StringVar(value="每账号每小时 6 条 · 每日 36 条（曼谷时间）")
         self.controls: list = []
-        root.title("视频号发布助手 v1.12.0")
+        root.title("视频号发布助手 v1.12.10")
         root.geometry(f"960x{min(940, root.winfo_screenheight() - 100)}")
         root.minsize(760, 760)
         root.configure(bg="#f3f6f5")
@@ -208,7 +208,8 @@ class Publisher:
         if path.suffix.lower() not in {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm"} or path.stat().st_size == 0:
             messagebox.showwarning("视频文件无效", "请选择非空的 MP4、MOV 等视频文件。", parent=self.root)
             return
-        title = self.title.get().strip()
+        title = normalize_short_title(self.title.get())
+        self.title.set(title)
         if not title:
             messagebox.showwarning("请填写短标题", "视频短标题不能为空。", parent=self.root)
             return

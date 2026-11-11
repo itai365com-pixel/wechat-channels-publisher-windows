@@ -2,15 +2,17 @@
 
 在 Windows 上从 Excel / CSV 导入文案，批量上传和定时发布微信视频号视频，核对后台发布结果，并生成近 7 天播放 Top10 分析报告。
 
-<a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.0/wechat-channels-publisher-windows-v1.12.0-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载 Windows x64 安装包"></a>
+<a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.10/wechat-channels-publisher-windows-v1.12.10-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载 Windows x64 安装包"></a>
 
-适用于 Windows 10 / 11 x64。[版本说明与校验文件](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.12.0)
+适用于 Windows 10 / 11 x64。[版本说明与校验文件](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.12.10) · [中文更新日志](CHANGELOG.md)
 
 <a href="docs/screenshots/batch-publishing.png"><img src="docs/screenshots/batch-publishing.png" width="48%" alt="批量发布界面，显示示例文案与待发布队列"></a> <a href="docs/screenshots/top10-analysis.png"><img src="docs/screenshots/top10-analysis.png" width="48%" alt="Top10 分析报告，显示示例播放数据与优化建议"></a>
 
 左图为批量发布界面，右图为 Top10 分析报告。两张截图均使用虚构的示例数据，点击可查看原图。
 
 安装包内含 Python 和 Chromium。安装可以离线进行，扫码登录、发布和读取统计需要联网。
+
+v1.12.10 新增上次发布记录和目录记忆，增强重启后的重复发布检查，并修复短标题含逗号导致上传后停止的问题。
 
 ## 开始使用
 
@@ -30,6 +32,9 @@ ep002.mp4,第二条短标题,这里填写第二条视频简介
 
 ## 批量发布和内容分析
 
+- 自动恢复上次使用的视频文件夹、文案表格和工作表。两个「选择」窗口分别记住各自的目录。
+- 「上次发布记录」展示当前账号最近一次批次。新建或继续队列时，按本地视频指纹跳过已核验作品。请保留本地发布记录。
+- 短标题中的中文、英文逗号在预览或保存编辑时替换为空格，简介和表格原文会保留。
 - 支持最多 2 个标签并行上传。封面先就绪的作品优先提交，每次提交一条。
 - 可保存草稿、立即发表或定时发表。批次间隔可设为 1、3、5 分钟，时间按曼谷时区填写。
 - 单个本地账号最近 60 分钟最多提交 6 条，每个曼谷自然日最多提交 36 条。草稿不计入额度，结果未知的提交保留额度。

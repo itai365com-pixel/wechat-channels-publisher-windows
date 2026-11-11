@@ -12,7 +12,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 TOP_LEVEL = (
     'video_channels_batch.py', 'video_channels_gui.py', 'publisher_options.py',
-    'publisher_lock.py', 'batch_table.py', 'channels_parallel.py',
+    'publisher_lock.py', 'batch_table.py', 'channels_parallel.py', 'publisher_preferences.py', 'channels_first_comments.py',
     'daily_publish_limit.py', 'publish_verification.py', 'sau_cli.py',
     'channels_statistics.py', 'channels_analytics.py', 'channels_report.py',
     'desktop_launcher.pyw', 'installed_self_test.py', 'conf.py', 'LICENSE',
@@ -72,14 +72,14 @@ def prepare(stage, browsers):
         if not path.is_file(): continue
         relative = path.relative_to(stage).as_posix()
         if relative.startswith(('cookies/', 'logs/', '.local/gui/batches/', '.local/gui/daily-quota/',
-                                '.local/gui/reports/', '.local/gui/diagnostics/', '.local/gui/completions/', '.local/gui/history-backups/')):
+                                '.local/gui/first-comments/', '.local/gui/batch-paths.json', '.local/gui/reports/', '.local/gui/diagnostics/', '.local/gui/completions/', '.local/gui/history-backups/')):
             raise ValueError(f'Private state must never be packaged: {relative}')
         if '__editable__' in relative or path.suffix.lower() in ('.mp4','.xlsx','.log'):
             raise ValueError(f'Unexpected private/development file: {relative}')
         with path.open('rb') as stream:
             digest = hashlib.file_digest(stream,'sha256').hexdigest()
         entries.append({'path':relative,'bytes':path.stat().st_size,'sha256':digest})
-    manifest = {'version':'1.12.0','architecture':'windows-x64','private_state_included':False,
+    manifest = {'version':'1.12.10','architecture':'windows-x64','private_state_included':False,
                 'files':entries, 'total_bytes':sum(entry['bytes'] for entry in entries)}
     (stage/'bundle-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'stage':str(stage),'files':len(entries),'bytes':manifest['total_bytes']},ensure_ascii=False),flush=True)

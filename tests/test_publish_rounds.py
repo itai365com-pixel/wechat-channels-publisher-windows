@@ -65,7 +65,7 @@ class BudgetTests(unittest.TestCase):
 
 
 class SimulatedPublisher(ParallelPublisher):
-    def preflight(self):
+    def preflight(self, *, reconcile=False):
         return [row for row in self.record['items'] if row['status'] == 'pending']
 
     async def run_round(self, jobs):
