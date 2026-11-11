@@ -8,6 +8,8 @@
 
 适用于 Windows 10 / 11 x64。[免费下载 v1.12.10 Windows 安装包](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.10/wechat-channels-publisher-windows-v1.12.10-x64.exe) · [版本说明与 SHA256 校验](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.12.10) · [中文更新日志](CHANGELOG.md)
 
+[项目主页和使用指南](https://itai365com-pixel.github.io/wechat-channels-publisher-windows/)
+
 <a href="docs/screenshots/batch-publishing.png"><img src="docs/screenshots/batch-publishing.png" width="48%" alt="Windows 视频号批量发布界面，显示示例文案和视频队列"></a> <a href="docs/screenshots/top10-analysis.png"><img src="docs/screenshots/top10-analysis.png" width="48%" alt="视频号近 7 天播放 Top10 分析报告，显示示例播放数据与选题建议"></a>
 
 左图为批量发布界面，右图为 Top10 分析报告。两张截图均使用虚构的示例数据，点击可查看原图。

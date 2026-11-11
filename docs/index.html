@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>微信视频号批量发布工具｜免费 Windows 桌面版</title>
+  <meta name="description" content="免费下载微信视频号批量发布工具。Windows 桌面版支持 Excel/CSV 文案导入、批量上传、定时发布、断点续发和已发布去重，并提供近 7 天播放 Top10 分析。">
+  <meta name="google-site-verification" content="7VLSNbkmQ6yaBF-zMmbdyLbGFfNeHB9nKnCohmP5mqA">
+  <link rel="canonical" href="https://itai365com-pixel.github.io/wechat-channels-publisher-windows/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="微信视频号批量发布工具｜Windows 桌面版">
+  <meta property="og:description" content="用 Excel 或 CSV 整理每条视频的文案，批量上传、定时发布，核验发表结果。">
+  <meta property="og:url" content="https://itai365com-pixel.github.io/wechat-channels-publisher-windows/">
+  <meta property="og:image" content="https://itai365com-pixel.github.io/wechat-channels-publisher-windows/screenshots/batch-publishing.png">
+  <style>
+    :root{color-scheme:light;--ink:#172c29;--soft:#425c55;--accent:#08644d;--line:#d7e4dd;--paper:#f6faf7}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,"Microsoft YaHei UI","Noto Sans CJK SC",system-ui,sans-serif;line-height:1.7}
+    a{color:var(--accent);text-underline-offset:.22em}
+    a:focus-visible{outline:3px solid #348f76;outline-offset:4px}
+    .shell{max-width:1120px;width:calc(100% - 48px);margin-inline:auto}
+    header{border-bottom:1px solid var(--line);background:#fff}
+    nav{display:flex;justify-content:space-between;align-items:center;gap:16px;min-height:64px}
+    .brand{font-weight:750;color:var(--ink);text-decoration:none}
+    .hero{padding-block:clamp(36px,7vw,80px) 44px}
+    .intro{display:grid;grid-template-columns:1fr 1.1fr;align-items:center;gap:clamp(28px,5vw,60px)}
+    .platform{color:var(--accent);font-weight:700;font-size:.92rem;margin:0 0 12px}
+    h1{font-size:clamp(2rem,4.4vw,3.5rem);line-height:1.2;letter-spacing:-.035em;margin:0}
+    h2{font-size:clamp(1.45rem,2.7vw,2rem);line-height:1.35;margin:0 0 16px}
+    h3{font-size:1.04rem;margin:0 0 5px}
+    p{margin:0 0 12px}
+    .lead{font-size:1.07rem;color:var(--soft);margin:18px 0 22px}
+    .actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px 20px;margin-bottom:12px}
+    .download{display:inline-block;background:var(--accent);color:white;padding:12px 18px;border-radius:9px;text-decoration:none;font-weight:700}
+    .download:hover{background:#064c3a}
+    .note,figcaption{color:var(--soft);font-size:.88rem}
+    figure{margin:0}
+    img{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:12px}
+    figcaption{padding-top:7px}
+    section{padding-block:36px;border-top:1px solid var(--line)}
+    .features{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+    .feature{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:#fff}
+    .feature p,.question p{color:var(--soft);margin:0}
+    .guide{display:grid;grid-template-columns:1.1fr 1fr;gap:36px;align-items:start}
+    ol{padding-inline-start:1.45em;margin:0}
+    li+li{margin-top:.45em}
+    code{font-family:Consolas,"SFMono-Regular",monospace;font-size:.9em}
+    .question+.question{margin-top:16px}
+    footer{padding-block:22px 36px;border-top:1px solid var(--line);color:var(--soft);font-size:.9rem}
+    @media(max-width:760px){.intro,.guide{grid-template-columns:1fr}.features{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:450px){.shell{width:calc(100% - 32px)}.features{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <header>
+    <nav class="shell" aria-label="项目导航">
+      <a class="brand" href="./">视频号批量发布助手</a>
+      <a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows">GitHub 源码 ↗</a>
+    </nav>
+  </header>
+  <main class="shell">
+    <div class="hero">
+      <div class="intro">
+        <div>
+          <p class="platform">免费开源 · Windows 10 / 11 x64</p>
+          <h1>微信视频号批量发布工具</h1>
+          <p class="lead">用 Excel 或 CSV 整理每条视频的短标题、简介和话题。选好视频和发布设置后，按队列上传、定时发表，并核对后台结果。</p>
+          <div class="actions">
+            <a class="download" href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.10/wechat-channels-publisher-windows-v1.12.10-x64.exe">下载 Windows 安装包</a>
+            <a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/latest">版本与 SHA256 校验</a>
+          </div>
+          <p class="note">v1.12.10 · 内置 Python 和 Chromium，安装无需联网。</p>
+        </div>
+        <figure>
+          <img src="screenshots/batch-publishing.png" alt="Windows 视频号批量发布工具的文案预览和发布队列">
+          <figcaption>批量发布界面，使用示例数据</figcaption>
+        </figure>
+      </div>
+    </div>
+    <section aria-labelledby="features">
+      <h2 id="features">从表格文案到发表核验</h2>
+      <div class="features">
+        <article class="feature"><h3>表格文案导入</h3><p>按视频文件名匹配 Excel、CSV 或 TSV。短标题和简介分栏预览，可选择连续的文件编号。</p></article>
+        <article class="feature"><h3>批量上传与定时发布</h3><p>最多两个标签并行上传，封面先就绪的作品优先提交。可立即发表、定时发表或保存草稿。</p></article>
+        <article class="feature"><h3>断点续发与去重</h3><p>重新打开软件可继续已有队列。保留本地发布历史后，同一账号已核验的视频会自动跳过。</p></article>
+      </div>
+    </section>
+    <section class="guide" aria-labelledby="guide">
+      <div>
+        <h2 id="guide">怎么批量发布视频号视频</h2>
+        <ol>
+          <li>安装并打开助手，使用微信扫码登录。</li>
+          <li>选择视频文件夹和文案表。表格可以用「文件名、短标题、简介」三列，简介中可保留 <code>#话题</code>。</li>
+          <li>读取表格并核对预览。可输入 <code>ep001-ep010</code> 选中一段连续编号。</li>
+          <li>设置合集、原创声明、视频标注和发表时间。提交后查看后台核验状态。</li>
+        </ol>
+      </div>
+      <div class="question">
+        <h3>定时发表的间隔怎么设？</h3>
+        <p>作品间隔可选 1、3、5 分钟，首条时间使用曼谷时区并需提前超过 2 小时。批次的每小时、每日提交额度另行计算。</p>
+      </div>
+    </section>
+    <section class="guide" aria-labelledby="analytics">
+      <div>
+        <h2 id="analytics">视频号近 7 天播放 Top10 分析</h2>
+        <p>查看最近 7 个曼谷自然日内发表的作品，按当前累计播放量选出前 10 条。报告展示后台能提供的完播、平均观看和播放来源等指标，方便回看选题。</p>
+        <a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows#视频号数据分析与近-7-天播放-top10">查看 GitHub 项目说明 ↗</a>
+      </div>
+      <figure>
+        <img src="screenshots/top10-analysis.png" alt="视频号播放 Top10 分析报告示例" loading="lazy">
+        <figcaption>本地分析报告，使用示例数据</figcaption>
+      </figure>
+    </section>
+  </main>
+  <footer class="shell">
+    <p><a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows">GitHub 项目源码</a> · <a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/blob/main/CHANGELOG.md">更新日志</a> · <a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/blob/main/LICENSE">MIT 许可证</a></p>
+    <p>基于 <a href="https://github.com/dreammis/social-auto-upload">dreammis/social-auto-upload</a>。原项目版权 Copyright (c) 2023 dreammis。此工具由社区独立维护。</p>
+  </footer>
+</body>
+</html>
