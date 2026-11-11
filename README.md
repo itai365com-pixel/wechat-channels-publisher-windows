@@ -2,9 +2,15 @@
 
 在 Windows 上从 Excel / CSV 导入文案，批量上传和定时发布微信视频号视频，核对后台发布结果，并生成近 7 天播放 Top10 分析报告。
 
-[下载 Windows 64 位安装包](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/latest)
+<a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.11.1/wechat-channels-publisher-windows-v1.11.1-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载 Windows x64 安装包"></a>
 
-适用于 Windows 10 / 11 x64。安装包内含 Python 和 Chromium。安装可以离线进行，扫码登录、发布和读取统计需要联网。
+适用于 Windows 10 / 11 x64。[版本说明与校验文件](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.11.1)
+
+<a href="docs/screenshots/batch-publishing.png"><img src="docs/screenshots/batch-publishing.png" width="48%" alt="批量发布界面，显示示例文案与待发布队列"></a> <a href="docs/screenshots/top10-analysis.png"><img src="docs/screenshots/top10-analysis.png" width="48%" alt="Top10 分析报告，显示示例播放数据与优化建议"></a>
+
+左图为批量发布界面，右图为 Top10 分析报告。两张截图均使用虚构的示例数据，点击可查看原图。
+
+安装包内含 Python 和 Chromium。安装可以离线进行，扫码登录、发布和读取统计需要联网。
 
 ## 开始使用
 
