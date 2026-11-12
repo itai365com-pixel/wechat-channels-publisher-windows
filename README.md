@@ -10,9 +10,9 @@
 
 [项目主页](https://itai365com-pixel.github.io/wechat-channels-publisher-windows/) · [视频号使用指南](#如何批量发布视频号视频) · [TikTok 使用指南](#tiktok-批量发布)
 
-<a href="docs/screenshots/batch-publishing.png"><img src="docs/screenshots/batch-publishing.png" width="48%" alt="Windows 视频号批量发布界面，显示示例文案和视频队列"></a> <a href="docs/screenshots/top10-analysis.png"><img src="docs/screenshots/top10-analysis.png" width="48%" alt="视频号近 7 天播放 Top10 分析报告，显示示例播放数据与选题建议"></a>
+<a href="docs/screenshots/batch-publishing-v1.12.19.png"><img src="docs/screenshots/batch-publishing-v1.12.19.png" width="32%" alt="v1.12.19 视频号批量发布界面，显示平台切换页签和示例视频队列"></a> <a href="docs/screenshots/tiktok-batch-publishing-v1.12.19.png"><img src="docs/screenshots/tiktok-batch-publishing-v1.12.19.png" width="32%" alt="v1.12.19 TikTok 批量发布界面，显示泰文示例文案和发布队列"></a> <a href="docs/screenshots/top10-analysis.png"><img src="docs/screenshots/top10-analysis.png" width="32%" alt="视频号近 7 天播放 Top10 分析报告，显示示例播放数据与选题建议"></a>
 
-左图为批量发布界面，右图为 Top10 分析报告。两张截图均使用虚构的示例数据，点击可查看原图。
+从左到右是 v1.12.19 的视频号批量发布、TikTok 批量发布，以及视频号 Top10 分析报告。三张图均使用示例数据，点击可查看原图。
 
 离线安装包内置 Python 和视频号使用的 Chromium。使用 TikTok 发布需安装 Google Chrome。登录、发布和读取统计时需要联网。
 

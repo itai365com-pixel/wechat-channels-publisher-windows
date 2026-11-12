@@ -11,7 +11,7 @@
   <meta property="og:title" content="微信视频号批量发布工具｜Windows 版支持 TikTok">
   <meta property="og:description" content="用 Excel 或 CSV 整理文案，批量发布视频号和 TikTok 视频，并核对后台结果。提供 Windows 离线安装包。">
   <meta property="og:url" content="https://itai365com-pixel.github.io/wechat-channels-publisher-windows/">
-  <meta property="og:image" content="https://itai365com-pixel.github.io/wechat-channels-publisher-windows/screenshots/batch-publishing.png">
+  <meta property="og:image" content="https://itai365com-pixel.github.io/wechat-channels-publisher-windows/screenshots/batch-publishing-v1.12.19.png">
   <style>
     :root{color-scheme:light;--ink:#172c29;--soft:#425c55;--accent:#08644d;--line:#d7e4dd;--paper:#f6faf7}
     *{box-sizing:border-box}
@@ -46,6 +46,7 @@
     li+li{margin-top:.45em}
     code{font-family:Consolas,"SFMono-Regular",monospace;font-size:.9em}
     .question+.question{margin-top:16px}
+    .guide ol+.question{margin-top:16px}
     footer{padding-block:22px 36px;border-top:1px solid var(--line);color:var(--soft);font-size:.9rem}
     @media(max-width:760px){.intro,.guide{grid-template-columns:1fr}.features{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media(max-width:450px){.shell{width:calc(100% - 32px)}.features{grid-template-columns:1fr}}
@@ -72,8 +73,8 @@
           <p class="note">v1.12.19 · 内置 Python 和 Chromium。TikTok 发布需安装 Google Chrome。</p>
         </div>
         <figure>
-          <img src="screenshots/batch-publishing.png" alt="Windows 视频号批量发布工具的文案预览和发布队列">
-          <figcaption>批量发布界面，使用示例数据</figcaption>
+          <a href="screenshots/batch-publishing-v1.12.19.png"><img src="screenshots/batch-publishing-v1.12.19.png" alt="v1.12.19 视频号批量发布工具的文案预览、发布队列和 TikTok 切换页签"></a>
+          <figcaption>v1.12.19 视频号批量发布界面，使用示例数据</figcaption>
         </figure>
       </div>
     </div>
@@ -108,12 +109,16 @@
           <li>导入 Excel、CSV 或 TSV 文案表。工具按视频文件名匹配文案，可附话题和曼谷发布时间。</li>
           <li>在发布浏览器登录 TikTok Studio，核对队列并点击「一键批量发布」。</li>
         </ol>
+        <div class="question">
+          <h3>TikTok 可以指定发布时间吗？</h3>
+          <p>可以在表格填写曼谷时间，助手会到点提交。队列按账号保存在电脑上，已登记的作品会跳过，提交结果以 Studio 后台核验为准。</p>
+        </div>
+        <a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows#tiktok-批量发布">查看 TikTok 文案表和操作说明 ↗</a>
       </div>
-      <div class="question">
-        <h3>TikTok 可以指定发布时间吗？</h3>
-        <p>可以在表格填写曼谷时间，助手会到点提交。队列按账号保存在电脑上，已登记的作品会跳过，提交结果以 Studio 后台核验为准。</p>
-        <p><a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows#tiktok-批量发布">查看 TikTok 文案表和操作说明 ↗</a></p>
-      </div>
+      <figure>
+        <a href="screenshots/tiktok-batch-publishing-v1.12.19.png"><img src="screenshots/tiktok-batch-publishing-v1.12.19.png" alt="v1.12.19 TikTok 批量发布界面，显示示例泰文文案、话题和视频队列" loading="lazy"></a>
+        <figcaption>v1.12.19 TikTok 批量发布界面，使用示例数据</figcaption>
+      </figure>
     </section>
     <section class="guide" aria-labelledby="analytics">
       <div>
