@@ -1,16 +1,17 @@
 """Batch desktop publisher using the installed SAU CLI and spreadsheet copy."""
+from collections import OrderedDict
 from datetime import datetime
 import asyncio
 import hashlib
 import json
-import re
 from pathlib import Path
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
-from batch_table import read_tables, records_from_rows, match_records, description_with_tags, select_records, video_series, resolve_series
+from batch_table import description_with_tags
+from batch_preview import read_batch_preview
 from daily_publish_limit import BANGKOK, SUBMIT_PHASES
 from channels_first_comments import FirstCommentQueue, FirstCommentWindow
 from publisher_preferences import first_directory, load_batch_paths, remember_batch_paths
@@ -132,7 +133,7 @@ def last_publish_batch(account):
 
 
 class BatchPublisher(Publisher):
-    def __init__(self, root):
+    def __init__(self, root, *, auto_preview=True):
         self.path_prefs = load_batch_paths(PATH_PREFS)
         self.folder = tk.StringVar(root, value=self.path_prefs.get("folder", str(DEFAULT_FOLDER)))
         self.table_path = tk.StringVar(root, value=self.path_prefs.get("table", ""))
@@ -146,18 +147,40 @@ class BatchPublisher(Publisher):
         self.stop_requested = threading.Event()
         self.items = []
         self.batch_results = None
-        self.tables = {}
+        self.preview_config = None
+        self.preview_generation = 0
+        self.preview_loading = False
+        self.preview_running = False
+        self.preview_request = None
+        self.preview_cancel = None
+        self.preview_checks = OrderedDict()
         self.last_preview_context = None
         self.last_preview_selection = None
         super().__init__(root)
-        root.title("视频号批量发布助手 v1.12.10")
+        root.title("视频号批量发布助手 v1.12.19")
         root.geometry(f"{min(1420, root.winfo_screenwidth() - 100)}x{min(960, root.winfo_screenheight() - 100)}")
         root.minsize(1060, 850)
-        root.after(300, self.preview)
+        if auto_preview:
+            root.after(300, self.preview)
 
     def make_ui(self):
         self.configure_style()
-        panel = scrollable_panel(self.root, (26, 12))
+        self.platform = tk.StringVar(self.root, value="wechat")
+        switch = ttk.Frame(self.root, padding=(26, 8, 26, 8))
+        switch.pack(fill="x")
+        style = ttk.Style(self.root)
+        style.configure("Platform.Toolbutton", padding=(13, 2), font=("Microsoft YaHei UI", 10))
+        style.map("Platform.Toolbutton", background=[("selected", "#d6e9df"), ("active", "#e8f2ed")])
+        for value, label in (("wechat", "视频号"), ("tiktok", "TikTok")):
+            ttk.Radiobutton(switch, text=label, value=value, variable=self.platform,
+                            style="Platform.Toolbutton", command=self.switch_platform).pack(side="left", padx=(0, 6))
+        self.platform_pages = ttk.Frame(self.root)
+        self.platform_pages.pack(fill="both", expand=True)
+        self.wechat_page = ttk.Frame(self.platform_pages)
+        self.wechat_page.pack(fill="both", expand=True)
+        self.tiktok_page = None
+        self.tiktok_panel = None
+        panel = scrollable_panel(self.wechat_page, (26, 12))
         panel.columnconfigure(1, weight=1)
         panel.rowconfigure(14, weight=1)
         heading = ttk.Frame(panel)
@@ -169,9 +192,9 @@ class BatchPublisher(Publisher):
         accounts = ttk.Frame(panel)
         accounts.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(0, 5))
         ttk.Label(accounts, text="视频号账号", style="Field.TLabel").pack(side="left", padx=(0, 12))
-        self.account_box = ttk.Combobox(accounts, textvariable=self.account, state="readonly", width=20)
+        self.account_box = ttk.Combobox(accounts, textvariable=self.account_display, state="readonly", width=20)
         self.account_box.pack(side="left")
-        self.account_box.bind("<<ComboboxSelected>>", lambda _event: self.refresh_account_status())
+        self.account_box.bind("<<ComboboxSelected>>", self.select_account)
         for text, callback in (("检查登录", self.check_login), ("扫码登录", self.login)):
             button = ttk.Button(accounts, text=text, command=callback)
             button.pack(side="left", padx=(10, 0))
@@ -291,6 +314,20 @@ class BatchPublisher(Publisher):
         self.log.grid(row=14, column=0, columnspan=3, sticky="ew")
         self.append_log("就绪。原视频和表格会保留在原位置；选中一条可查看完整文案。\n")
 
+    def switch_platform(self):
+        if self.platform.get() == "tiktok":
+            if self.tiktok_page is None:
+                from tiktok_gui import TikTokPanel
+
+                self.tiktok_page = ttk.Frame(self.platform_pages)
+                self.tiktok_panel = TikTokPanel(self.tiktok_page)
+            self.wechat_page.pack_forget()
+            self.tiktok_page.pack(fill="both", expand=True)
+        else:
+            if self.tiktok_page is not None:
+                self.tiktok_page.pack_forget()
+            self.wechat_page.pack(fill="both", expand=True)
+
     def remember_paths(self):
         try:
             self.path_prefs = remember_batch_paths(PATH_PREFS, self.folder.get().strip(), self.table_path.get().strip(), self.sheet.get())
@@ -304,7 +341,8 @@ class BatchPublisher(Publisher):
             self.folder.set(selected)
             self.reset_selection()
             self.series.set('自动识别')
-            self.use_folder_table()
+            self.table_path.set('')
+            self.sheet.set('')
             self.remember_paths()
             self.preview()
 
@@ -326,119 +364,105 @@ class BatchPublisher(Publisher):
         self.count.set('')
         self.filenames.set('')
 
-    def use_folder_table(self):
-        sources = sorted(p for p in Path(self.folder.get()).glob('*') if p.suffix.lower() in {'.xlsx', '.csv', '.tsv'} and p.is_file())
-        self.table_path.set(str(sources[0]) if len(sources) == 1 else '')
-        self.sheet.set('')
-
     def change_series(self, _event=None):
         self.reset_selection()
         self.preview()
 
+    def cancel_preview(self):
+        self.preview_generation += 1
+        self.preview_request = None
+        self.preview_loading = False
+        if self.preview_cancel is not None:
+            self.preview_cancel.set()
+
     def preview(self):
         if self.busy:
             return
+        self.cancel_preview()
+        self.preview_loading = True
+        self.preview_config = None
         self.items = []
-        for key in self.tree.get_children():
-            self.tree.delete(key)
-        try:
-            folder = self.folder.get().strip()
-            table = self.table_path.get().strip()
-            if not folder or not Path(folder).is_dir():
-                raise ValueError('视频文件夹不存在，请重新选择。')
-            if not table:
-                self.use_folder_table()
-            elif not Path(table).is_file():
-                raise ValueError('文案表格不存在，请重新选择。')
-            if not self.table_path.get():
-                raise ValueError('请先选择对应系列的文案表格；目录有多份表格时不会自动猜选。')
-            self.tables = read_tables(self.table_path.get())
-            sheets = list(self.tables)
-            self.sheet_box["values"] = sheets
-            if self.sheet.get() not in sheets:
-                self.sheet.set(sheets[0])
-            records = records_from_rows(self.tables[self.sheet.get()])
-            self.remember_paths()
-            groups = video_series(self.folder.get())
-            self.series_box['values'] = ['自动识别'] + [prefix or '（纯数字）' for prefix in groups]
-            choice = self.series.get()
-            prefix = resolve_series(records, self.folder.get(), None if choice == '自动识别' else '' if choice == '（纯数字）' else choice)
-            matched, video_count = match_records(records, self.folder.get(), series_prefix=prefix)
-            if not matched:
-                raise ValueError('没有匹配的视频与文案，请核对文件系列、集数或表格中的文件名。')
-            if prefix is None:
-                parts = [re.fullmatch(r'(.*?)(\d+)', Path(row['file']).stem) for row in matched]
-                matched_groups = {part.group(1).casefold() for part in parts if part}
-                if all(parts) and len(matched_groups) == 1:
-                    prefix = next(iter(matched_groups))
-            context = (str(Path(self.folder.get()).resolve()), str(Path(self.table_path.get()).resolve()), self.sheet.get(), prefix)
-            selection = (self.start_number.get(), self.count.get(), self.filenames.get())
-            if self.last_preview_context is not None and context != self.last_preview_context and selection == self.last_preview_selection:
-                self.reset_selection()
-            names = self.filenames.get().strip()
-            if names:
-                self.items = select_records(matched, names, default_prefix=prefix)
+        self.tree.delete(*self.tree.get_children())
+        self.detail.configure(state="normal")
+        self.detail.delete("1.0", "end")
+        self.detail.configure(state="disabled")
+        self.summary.set("正在读取文案和检查视频…")
+        self.status.set("正在更新预览")
+        self.preview_request = (self.preview_generation, self.current_config(),
+                                self.last_preview_context, self.last_preview_selection)
+        self.start_preview_worker()
+
+    def start_preview_worker(self):
+        if self.preview_running or self.preview_request is None:
+            return
+        generation, config, context, selection = self.preview_request
+        self.preview_request = None
+        self.preview_running = True
+        self.preview_cancel = cancelled = threading.Event()
+
+        def load():
+            result = read_batch_preview(config, context, selection, self.preview_checks, cancelled)
+            self.events.put(("preview_done", (generation, config, result)))
+
+        threading.Thread(target=load, daemon=True).start()
+
+    def finish_preview(self, generation, config, result):
+        self.preview_running = False
+        self.preview_cancel = None
+        if generation == self.preview_generation:
+            self.preview_loading = False
+            if config == self.current_config():
+                self.apply_preview(result)
             else:
-                first, last = self.start_number.get().strip(), self.count.get().strip()
-                if not first and not last:
-                    self.items = [dict(row) for row in matched]
-                else:
-                    if not first or not last:
-                        raise ValueError('起止编号请同时填写，或同时留空读取全部。')
-                    if prefix is None:
-                        raise ValueError('没有统一的文件编号系列，请使用“指定文件”填写完整文件名。')
-                    start, end = int(first), int(last)
-                    if start < 1 or end < start:
-                        raise ValueError("请填写正确的起始编号和结束编号，结束编号不能小于起始编号。")
-                    self.items = select_records(matched, f"{start}-{end}", default_prefix=prefix)
-            settings = self.options.snapshot()
-            schedules = planned_times(settings, len(self.items))
-            import cv2
-            for index, item in enumerate(self.items):
-                source_title = item.get("short_title") or item["title"]
-                title = normalize_short_title(source_title)
-                if title != source_title:
-                    item["short_title"] = title
-                    self.append_log(f'{Path(item["file"]).name}：短标题中的逗号已替换为空格。\n')
-                if not item["title"]:
-                    raise ValueError(f"表格第 {item['source_row']} 行缺少标题。")
-                capture = None
-                item['decode_error'] = ''
-                try:
-                    capture = cv2.VideoCapture(item['file'])
-                    ok, frame = capture.read()
-                    if not ok or frame is None:
-                        item['decode_error'] = '视频首帧无法解码，请检查或替换视频后更新预览。'
-                except Exception as exc:
-                    item['decode_error'] = f'视频检查失败：{exc}'
-                finally:
-                    if capture is not None:
-                        capture.release()
-                item["status"] = "视频无法解码" if item['decode_error'] else "短标题需修改" if short_title_issues(item["short_title"] or item["title"]) else "已匹配，待发布"
-                item["schedule"] = schedules[index]
-                self.tree.insert("", "end", iid=str(index), values=(index + 1, Path(item["file"]).name, item["short_title"] or item["title"], item.get("publish_desc", item["desc"]), schedules[index] or "立即发表", item["status"]), tags=("invalid",) if item['decode_error'] or item["status"] == "短标题需修改" else ())
-            order = "按指定文件顺序" if names else "按文件名自然排序"
-            series_label = (prefix or '纯数字') if prefix is not None else '按明确文件名'
-            bad = [row for row in self.items if row.get('decode_error')]
-            extra = f'；{len(bad)} 条视频无法解码，已标红。' if bad else ''
-            self.summary.set(f"识别系列：{series_label}；文件夹 {video_count} 个视频，表格匹配 {len(matched)} 条；本次预览 {len(self.items)} 条（{order}）{extra or '。'}")
-            self.status.set(f'已读取 {len(self.items)} 条 · {len(bad)} 条视频需检查' if bad else f"已准备 {len(self.items)} 条 · 请核对标题和简介")
-            if bad:
-                self.append_log('视频检查失败：' + '、'.join(Path(row['file']).name for row in bad) + '。请替换视频后更新预览，或在指定文件中排除这些条目。\n')
-            if self.items:
-                self.tree.selection_set("0")
-                self.show_detail()
-            self.preview_config = self.current_config()
-            self.table_signature = (Path(self.table_path.get()).stat().st_size, Path(self.table_path.get()).stat().st_mtime_ns)
-            self.last_preview_context = context
-            self.last_preview_selection = (self.start_number.get(), self.count.get(), self.filenames.get())
-        except Exception as exc:
-            self.items = []
-            for key in self.tree.get_children():
-                self.tree.delete(key)
-            self.summary.set(f"无法准备队列：{exc}")
-            self.status.set("请检查表格和视频文件夹")
-            self.append_log(f"读取失败：{exc}\n")
+                self.summary.set("设置已变化，请重新读取表格 / 更新预览。")
+                if not self.busy:
+                    self.status.set("等待更新预览")
+        self.start_preview_worker()
+
+    def apply_preview(self, result):
+        if result.table != self.table_path.get():
+            self.table_path.set(result.table)
+        if result.sheets:
+            self.sheet_box["values"] = result.sheets
+            self.sheet.set(result.sheet)
+            self.remember_paths()
+        if result.series:
+            self.series_box["values"] = result.series
+        if result.selection != (self.start_number.get(), self.count.get(), self.filenames.get()):
+            self.start_number.set(result.selection[0])
+            self.count.set(result.selection[1])
+            self.filenames.set(result.selection[2])
+        if result.error:
+            self.summary.set(f"无法准备队列：{result.error}")
+            if not self.busy:
+                self.status.set("请检查表格和视频文件夹")
+            self.append_log(f"读取失败：{result.error}\n")
+            return
+
+        self.items = result.items
+        for index, item in enumerate(self.items):
+            values = (index + 1, Path(item["file"]).name, item["short_title"] or item["title"],
+                      item.get("publish_desc", item["desc"]), item["schedule"] or "立即发表", item["status"])
+            invalid = item["decode_error"] or item["status"] == "短标题需修改"
+            self.tree.insert("", "end", iid=str(index), values=values, tags=("invalid",) if invalid else ())
+        if result.renamed_titles:
+            self.append_log("短标题中的逗号已替换为空格：" + "、".join(result.renamed_titles[:10]) + "。\n")
+        order = "按指定文件顺序" if result.selection[2].strip() else "按文件名自然排序"
+        prefix = result.context[-1]
+        series_label = (prefix or "纯数字") if prefix is not None else "按明确文件名"
+        bad = [row for row in self.items if row["decode_error"]]
+        extra = f"；{len(bad)} 条视频无法解码，已标红。" if bad else "。"
+        self.summary.set(f"识别系列：{series_label}；文件夹 {result.video_count} 个视频，表格匹配 {result.matched_count} 条；本次预览 {len(self.items)} 条（{order}）{extra}")
+        if not self.busy:
+            self.status.set(f"已读取 {len(self.items)} 条 · {len(bad)} 条视频需检查" if bad else f"已准备 {len(self.items)} 条 · 请核对标题和简介")
+        if bad:
+            self.append_log("视频检查失败：" + "、".join(Path(row["file"]).name for row in bad[:10]) + "。请替换视频后更新预览，或使用“指定文件”排除这些条目。\n")
+        self.tree.selection_set("0")
+        self.show_detail()
+        self.preview_config = self.current_config()
+        self.table_signature = result.table_signature
+        self.last_preview_context = result.context
+        self.last_preview_selection = result.selection
 
     def show_detail(self, _event=None):
         selected = self.tree.selection()
@@ -504,7 +528,7 @@ class BatchPublisher(Publisher):
         entry.focus_set()
 
     def publish_batch(self, draft):
-        if self.busy:
+        if self.busy or self.preview_loading:
             return
         if not self.items:
             messagebox.showwarning("请先预览", "请先读取文案表并检查视频匹配结果。", parent=self.root)
@@ -545,7 +569,7 @@ class BatchPublisher(Publisher):
                 jobs.append({**item, "status": "pending", "schedule": schedules[index]})
             action = "批量保存草稿" if draft else "批量定时发表" if settings["scheduled"] else "批量发布"
             names = "、".join(Path(item["file"]).stem for item in jobs)
-            question = f"账号：{self.account.get()}\n数量：{len(jobs)} 条\n视频：{names}\n文案来源：{Path(self.table_path.get()).name} / {self.sheet.get()}\n\n"
+            question = f"账号：{self.account_display.get()}\n数量：{len(jobs)} 条\n视频：{names}\n文案来源：{Path(self.table_path.get()).name} / {self.sheet.get()}\n\n"
             question += options_summary(settings, schedules) + "\n\n"
             if skipped:
                 question += f'已自动跳过 {len(skipped)} 条后台核验完成的视频。\n'
@@ -619,7 +643,7 @@ class BatchPublisher(Publisher):
         rows = record['items']
         verified = sum(verified_completion(record, row) for row in rows)
         skipped = sum(row.get('status') == 'skipped_completed' for row in rows)
-        ttk.Label(panel, text=f'{self.account.get()} · {stamp:%Y-%m-%d %H:%M}（曼谷） · 本批核验 {verified} 条 · 已发布跳过 {skipped} 条 · 共 {len(rows)} 条').pack(anchor='w')
+        ttk.Label(panel, text=f'{self.account_display.get()} · {stamp:%Y-%m-%d %H:%M}（曼谷） · 本批核验 {verified} 条 · 已发布跳过 {skipped} 条 · 共 {len(rows)} 条').pack(anchor='w')
         ttk.Label(panel, text=path.name, style='Muted.TLabel').pack(anchor='w', pady=(3, 8))
         frame = ttk.Frame(panel)
         frame.pack(fill='both', expand=True)
@@ -662,13 +686,17 @@ class BatchPublisher(Publisher):
                 raise ValueError('这份队列没有可继续的条目，视频已完成或已有后台核验记录。')
             if confirm:
                 completed = sum(row.get('status') in FINISHED_ITEMS for row in record['items'])
-                question = f'账号：{record["account"]}\n已完成 {completed} 条，将跳过。\n继续未完成 {len(jobs)} 条。\n\n' + options_summary(record['options'])
+                display_name = self.account_names.get(record["account"], record["account"])
+                question = f'账号：{display_name}\n已完成 {completed} 条，将跳过。\n继续未完成 {len(jobs)} 条。\n\n' + options_summary(record['options'])
                 question += '\n\n最多使用 2 个标签上传，按额度和队列中保存的时间继续。确认继续？'
                 if not messagebox.askyesno('继续已有队列', question, parent=self.root):
                     return
+            self.cancel_preview()
+            self.preview_config = None
             self.manifest_path, self.manifest = path, record
             record['parallel_tabs'] = 2
             self.account.set(record['account'])
+            self.refresh_account_status()
             self.folder.set(str(Path(record['items'][0]['file']).parent))
             self.table_path.set(record.get('source', ''))
             self.sheet.set(record.get('sheet', ''))
@@ -741,6 +769,9 @@ class BatchPublisher(Publisher):
             self.events.put(('done', (code, None, action)))
 
     def on_event(self, kind, payload):
+        if kind == "preview_done":
+            self.finish_preview(*payload)
+            return
         if kind == 'batch_wait' and not self.stop_requested.is_set():
             self.status.set(payload)
         if kind == "batch_row":
@@ -760,6 +791,15 @@ class BatchPublisher(Publisher):
             self.sheet_box.configure(state="readonly")
             self.status.set((self.batch_results or "批次已结束") + (" · 请检查日志" if code else ""))
 
+    def close(self):
+        if self.tiktok_panel is not None and self.tiktok_panel.busy:
+            self.tiktok_panel.pause()
+            messagebox.showinfo("TikTok 正在暂停", "请等当前操作返回，再关闭发布助手。", parent=self.root)
+            return
+        if not self.busy:
+            self.cancel_preview()
+        super().close()
+
     def current_config(self):
         return (self.folder.get(), self.table_path.get(), self.sheet.get(), self.series.get(), self.start_number.get(), self.count.get(), self.filenames.get(), self.options.snapshot())
 
@@ -773,7 +813,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     initialize_desktop_app()
     root = tk.Tk()
-    app = BatchPublisher(root)
+    app = BatchPublisher(root, auto_preview=not (args.resume or args.inspect))
     if args.resume:
         root.after(400, lambda: app.resume_batch(args.resume))
     elif args.inspect:

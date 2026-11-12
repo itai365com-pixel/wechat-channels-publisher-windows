@@ -105,7 +105,7 @@ async def check_tencent_account(account_name: str) -> bool:
     account_file = resolve_account_file("tencent", account_name)
     if not account_file.exists():
         return False
-    return await tencent_cookie_auth(str(account_file))
+    return await tencent_cookie_auth(str(account_file), remember_name=True)
 
 
 async def upload_tencent_video(request: TencentVideoUploadRequest) -> Path:

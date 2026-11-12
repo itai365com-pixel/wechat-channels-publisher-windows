@@ -1,20 +1,20 @@
 # 微信视频号批量发布工具 · Windows 桌面版
 
-**WeChat Channels Batch Publisher for Windows**
+**WeChat Channels & TikTok Batch Publisher for Windows**
 
-这是一款免费开源的微信视频号批量发布助手。从 Excel 或 CSV 导入每条视频的短标题和简介，批量上传、定时发布，并核验发表结果。程序重启后可继续已有队列、跳过已发布视频，还能生成近 7 天播放 Top10 分析报告。
+这是一款免费开源的 **微信视频号批量发布工具**，适用于 Windows 10 / 11。支持 Excel / CSV 文案导入、批量上传、定时发表、断点续发、发布去重和近 7 天播放 Top10 分析。新版可在同一窗口切换到 **TikTok 批量发布**，按视频文件名导入文案和话题，并通过 TikTok Studio 逐条提交和核验。
 
-<a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.10/wechat-channels-publisher-windows-v1.12.10-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载 Windows x64 安装包"></a>
+<a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.19/wechat-channels-publisher-windows-v1.12.19-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载微信视频号和 TikTok 批量发布工具 Windows x64 安装包"></a>
 
-适用于 Windows 10 / 11 x64。[免费下载 v1.12.10 Windows 安装包](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.10/wechat-channels-publisher-windows-v1.12.10-x64.exe) · [版本说明与 SHA256 校验](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.12.10) · [中文更新日志](CHANGELOG.md)
+[免费下载 v1.12.19 Windows 安装包](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.19/wechat-channels-publisher-windows-v1.12.19-x64.exe) · [版本说明与 SHA256 校验](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.12.19) · [中文更新日志](CHANGELOG.md)
 
-[项目主页和使用指南](https://itai365com-pixel.github.io/wechat-channels-publisher-windows/)
+[项目主页](https://itai365com-pixel.github.io/wechat-channels-publisher-windows/) · [视频号使用指南](#如何批量发布视频号视频) · [TikTok 使用指南](#tiktok-批量发布)
 
 <a href="docs/screenshots/batch-publishing.png"><img src="docs/screenshots/batch-publishing.png" width="48%" alt="Windows 视频号批量发布界面，显示示例文案和视频队列"></a> <a href="docs/screenshots/top10-analysis.png"><img src="docs/screenshots/top10-analysis.png" width="48%" alt="视频号近 7 天播放 Top10 分析报告，显示示例播放数据与选题建议"></a>
 
 左图为批量发布界面，右图为 Top10 分析报告。两张截图均使用虚构的示例数据，点击可查看原图。
 
-离线安装包内置 Python 和 Chromium，无需另装 Python、Chrome 或 Excel。扫码登录、发布和读取统计需要联网。
+离线安装包内置 Python 和视频号使用的 Chromium。使用 TikTok 发布需安装 Google Chrome。登录、发布和读取统计时需要联网。
 
 ## 适用场景
 
@@ -60,6 +60,23 @@ ep002.mp4,第二条短标题,这里填写第二条视频简介
 
 点击「近7天Top10与分析」读取最近 7 个曼谷自然日内发表的作品，按读取时的累计播放量排名。工具只为入榜作品读取详情，生成包含完播、平均观看、留存采样、播放来源和选题建议的本地 HTML 报告。后台缺失的指标会标为「未提供」。
 
+## TikTok 批量发布
+
+1. 在批量发布助手顶部切换到「TikTok」，填写 TikTok Studio 显示的 `@用户名`。
+2. 选择视频目录和 Excel（`.xlsx`）、CSV 或 TSV 文案表，点击「读取表格 / 保存队列」。必填列为「视频文件名」和「TikTok 文案」（也可用「泰文文案」），「话题」与「曼谷发布时间」可选。
+3. 首次点击「登录发布浏览器」，在打开的 Google Chrome 窗口登录同一账号。发布浏览器的登录会话和队列按账号保存在本机。
+4. 核对视频与文案，填写本批条数或留空处理全部待处理项，再点「一键批量发布」。工具按队列逐条提交，并在 TikTok Studio 作品列表核验公开状态。
+
+```csv
+视频文件名,TikTok 文案,话题,曼谷发布时间
+lesson001.mp4,คำจีนวันนี้: 你好 แปลว่า สวัสดี,#เรียนภาษาจีน,
+lesson002.mp4,คำจีนวันนี้: 谢谢 แปลว่า ขอบคุณ,#เรียนภาษาจีน,
+```
+
+- 填写「曼谷发布时间」时使用文本格式 `YYYY-MM-DD HH:MM`。助手在电脑上等到时间再提交，等待期间请保持软件运行。
+- 助手默认每个 TikTok 账号最近 60 分钟最多提交 2 条，每个曼谷自然日最多 10 条。达到额度后等待下一时段。
+- 队列按账号和视频内容识别已登记的作品。提交结果未知时会先核对后台再决定下一步。也可手动在 Studio 排期，核对后在队列里登记。
+
 ## 常见问题
 
 ### 视频号定时发布需要提前多久？
@@ -76,7 +93,7 @@ ep002.mp4,第二条短标题,这里填写第二条视频简介
 
 ## 数据存放位置
 
-扫码会话保存在安装目录的 `cookies/`，队列、额度和报告保存在 `.local/gui/`。更换电脑后需要重新扫码，并重新选择素材和表格路径。公开仓库和安装包只包含程序与示例，实际账号、素材和发布记录留在本机。
+视频号扫码会话保存在安装目录的 `cookies/`，队列、额度和报告保存在 `.local/gui/`。TikTok 队列和发布浏览器会话保存在 `.local/gui/tiktok/`。换电脑后需重新登录，并重新选择素材和表格。公开仓库和安装包只包含程序与示例。
 
 「词映官网」按钮可打开 [词映](https://www.tugei.com/)。
 
@@ -100,6 +117,6 @@ $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path (Get-Location) '.local\browsers'
 
 ## 上游与许可
 
-本项目基于 [dreammis/social-auto-upload](https://github.com/dreammis/social-auto-upload) 的源码，加入 Windows 桌面发布界面、批量队列和数据分析。上游源码基线为 [`3847fff`](https://github.com/dreammis/social-auto-upload/commit/3847fff01f5434a8a32829833163cd6723cabc59)。
+本项目基于 [dreammis/social-auto-upload](https://github.com/dreammis/social-auto-upload) 的源码，加入 Windows 桌面发布界面、视频号和 TikTok 批量队列及视频号数据分析。上游源码基线为 [`3847fff`](https://github.com/dreammis/social-auto-upload/commit/3847fff01f5434a8a32829833163cd6723cabc59)。
 
-原项目版权为 Copyright (c) 2023 dreammis。项目使用 [MIT 许可证](LICENSE)，安装包中的第三方组件附有各自的许可。此项目是非官方辅助工具，与微信或腾讯无隶属关系。
+原项目版权为 Copyright (c) 2023 dreammis。项目使用 [MIT 许可证](LICENSE)，安装包中的第三方组件附有各自的许可。此项目是非官方辅助工具，与微信、腾讯或 TikTok 无隶属关系。

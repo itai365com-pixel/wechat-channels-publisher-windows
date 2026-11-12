@@ -9,7 +9,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from patchright.async_api import Page
 from patchright.async_api import Playwright
@@ -21,6 +21,7 @@ from utils.base_social_media import set_init_script
 from utils.log import tencent_logger
 from publish_verification import SubmissionUnconfirmed, check_session, visible_feedback, check_rejection, verify_management_record
 from daily_publish_limit import DailyPublishBudget
+from channels_account_names import name_from_auth_data, remember_account_name
 
 TENCENT_LOGIN_URL = "https://channels.weixin.qq.com"
 TENCENT_HOME_URL = "https://channels.weixin.qq.com/platform"
@@ -114,7 +115,19 @@ def format_str_for_short_title(origin_title: str) -> str:
     return formatted_string
 
 
-async def cookie_auth(account_file):
+async def _remember_login_nickname(account_file, responses, ready):
+    try:
+        await asyncio.wait_for(ready.wait(), timeout=2)
+        for response in reversed(responses[-2:]):
+            nickname, username = name_from_auth_data(await asyncio.wait_for(response.json(), timeout=2))
+            if nickname and remember_account_name(account_file, nickname, finder_username=username):
+                return
+    except Exception:
+        # A missing or changed profile response must not invalidate the login.
+        pass
+
+
+async def cookie_auth(account_file, *, remember_name=False):
     account_file = _resolve_account_file(account_file)
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=True))
@@ -122,6 +135,18 @@ async def cookie_auth(account_file):
             context = await browser.new_context(storage_state=account_file)
             context = await set_init_script(context)
             page = await context.new_page()
+            if remember_name:
+                profile_responses = []
+                profile_ready = asyncio.Event()
+
+                def observe_profile(response):
+                    url = urlsplit(response.url)
+                    if (url.scheme == "https" and url.netloc == "channels.weixin.qq.com"
+                            and url.path == "/cgi-bin/mmfinderassistant-bin/auth/auth_data" and response.ok):
+                        profile_responses.append(response)
+                        profile_ready.set()
+
+                page.on("response", observe_profile)
             await page.goto(TENCENT_UPLOAD_URL, wait_until="domcontentloaded")
 
             # cookie 失效时, 页面先停在 post/create, 随后由前端 JS 跳转到登录页;
@@ -139,6 +164,8 @@ async def cookie_auth(account_file):
                     tencent_logger.info(_msg("🥹", "cookie 已失效（页面出现扫码登录框），得重新登录一下"))
                     return False
 
+            if remember_name:
+                await _remember_login_nickname(account_file, profile_responses, profile_ready)
             tencent_logger.success(_msg("🥳", "cookie 有效"))
             return True
         except Exception as exc:
@@ -423,7 +450,7 @@ async def tencent_cookie_gen(
             if result["success"]:
                 await asyncio.sleep(2)
                 await context.storage_state(path=account_file)
-                if not await cookie_auth(account_file):
+                if not await cookie_auth(account_file, remember_name=True):
                     result = _build_login_result(
                         False,
                         "cookie_invalid",
@@ -460,7 +487,7 @@ async def tencent_setup(
     headless: bool = LOCAL_CHROME_HEADLESS,
 ):
     account_file = _resolve_account_file(account_file)
-    if not os.path.exists(account_file) or not await cookie_auth(account_file):
+    if not os.path.exists(account_file) or not await cookie_auth(account_file, remember_name=handle):
         if not handle:
             result = _build_login_result(False, "cookie_invalid", "cookie文件不存在或已失效", account_file)
             return result if return_detail else False

@@ -43,8 +43,16 @@ def scrollable_panel(root, padding):
     panel.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
     canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window, width=event.width))
     def wheel(event):
-        if event.widget.winfo_toplevel() == root and event.widget.winfo_class() not in {"Text", "Treeview", "TCombobox"}:
-            canvas.yview_scroll(-int(event.delta / 120), "units")
+        widget = event.widget
+        if not isinstance(widget, tk.Misc) or widget.winfo_toplevel() != root.winfo_toplevel():
+            return
+        if widget.winfo_class() in {"Text", "Treeview", "TCombobox"}:
+            return
+        while widget is not None:
+            if widget == root:
+                canvas.yview_scroll(-int(event.delta / 120), "units")
+                return
+            widget = getattr(widget, "master", None)
     root.bind_all("<MouseWheel>", wheel, add=True)
     return panel
 

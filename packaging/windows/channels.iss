@@ -8,8 +8,8 @@
 [Setup]
 AppId={{C6C9A16B-1F7E-4A40-916D-8D9744F79E29}
 AppName=视频号发布助手
-AppVersion=1.12.10
-AppVerName=视频号发布助手 1.12.10
+AppVersion=1.12.19
+AppVerName=视频号发布助手 1.12.19
 AppPublisher=Social Auto Upload 本地定制版
 AppPublisherURL=https://github.com/dreammis/social-auto-upload
 DefaultDirName={localappdata}\Programs\SAUChannels
@@ -19,7 +19,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#OutputPath}
-OutputBaseFilename=视频号发布助手_安装包_v1.12.10_Win64
+OutputBaseFilename=视频号发布助手_安装包_v1.12.19_Win64
 Compression=lzma2/normal
 SolidCompression=yes
 LZMANumBlockThreads=2
@@ -28,7 +28,8 @@ DisableProgramGroupPage=yes
 UsePreviousAppDir=yes
 SetupLogging=yes
 UninstallDisplayName=视频号发布助手
-UninstallDisplayIcon={app}\runtime\pythonw.exe
+UninstallDisplayIcon={app}\assets\publisher-mark.ico
+SetupIconFile={#StageDir}\assets\publisher-mark.ico
 LicenseFile={#StageDir}\LICENSE
 InfoAfterFile={#StageDir}\安装后请先阅读.txt
 CloseApplications=yes
@@ -50,11 +51,11 @@ Source: "{#StageDir}\*"; DestDir: "{app}"; Excludes: "logs\*,cookies\*,.local\gu
 Source: "{#StageDir}\.local\gui\publish-policy.json"; DestDir: "{app}\.local\gui"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Icons]
-Name: "{group}\视频号批量发布助手"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-I -B ""{app}\desktop_launcher.pyw"""; WorkingDir: "{app}"
-Name: "{group}\视频号单条发布助手"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-I -B ""{app}\desktop_launcher.pyw"" --single"; WorkingDir: "{app}"
+Name: "{group}\视频号批量发布助手"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-I -B ""{app}\desktop_launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\publisher-mark.ico"
+Name: "{group}\视频号单条发布助手"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-I -B ""{app}\desktop_launcher.pyw"" --single"; WorkingDir: "{app}"; IconFilename: "{app}\assets\publisher-mark.ico"
 Name: "{group}\使用说明"; Filename: "{app}\安装后请先阅读.txt"
 Name: "{group}\打开数据目录"; Filename: "{app}\.local\gui"
-Name: "{autodesktop}\视频号批量发布助手"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-I -B ""{app}\desktop_launcher.pyw"""; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\视频号批量发布助手"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-I -B ""{app}\desktop_launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\publisher-mark.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\runtime\pythonw.exe"; Parameters: "-I -B ""{app}\desktop_launcher.pyw"""; Description: "打开视频号批量发布助手"; Flags: nowait postinstall skipifsilent

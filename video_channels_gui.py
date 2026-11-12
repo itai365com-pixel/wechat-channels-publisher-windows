@@ -16,6 +16,7 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 from publisher_options import OptionsPanel, option_arguments, options_summary, planned_times, scrollable_panel, initialize_desktop_app, short_title_issues, normalize_short_title
 from publisher_lock import AccountLock
+from channels_account_names import account_labels
 from daily_publish_limit import DailyPublishBudget, PublishLimitReached
 
 ROOT = Path(__file__).resolve().parent
@@ -33,12 +34,17 @@ class Publisher:
         self.title = tk.StringVar()
         self.tags = tk.StringVar()
         self.account = tk.StringVar(value="creator")
+        self.account_display = tk.StringVar(value=self.account.get())
+        self.account_names = {}
         self.status = tk.StringVar(value="就绪 · 选择视频后填写发布内容")
         self.file_info = tk.StringVar(value="支持 MP4、MOV 等视频文件")
         self.login_status = tk.StringVar(value="")
         self.quota_status = tk.StringVar(value="每账号每小时 6 条 · 每日 36 条（曼谷时间）")
         self.controls: list = []
-        root.title("视频号发布助手 v1.12.10")
+        root.title("视频号发布助手 v1.12.19")
+        icon = ROOT / "assets" / "publisher-mark.ico"
+        if sys.platform == "win32" and icon.is_file():
+            root.iconbitmap(default=str(icon))
         root.geometry(f"960x{min(940, root.winfo_screenheight() - 100)}")
         root.minsize(760, 760)
         root.configure(bg="#f3f6f5")
@@ -76,9 +82,9 @@ class Publisher:
         accounts.grid(row=2, column=0, sticky="ew", pady=(0, 4))
         accounts.columnconfigure(1, weight=1)
         ttk.Label(accounts, text="本地账号", style="Field.TLabel").grid(row=0, column=0, padx=(0, 12))
-        self.account_box = ttk.Combobox(accounts, textvariable=self.account, state="readonly", width=20, font=("Microsoft YaHei UI", 10))
+        self.account_box = ttk.Combobox(accounts, textvariable=self.account_display, state="readonly", width=20, font=("Microsoft YaHei UI", 10))
         self.account_box.grid(row=0, column=1, sticky="w")
-        self.account_box.bind("<<ComboboxSelected>>", lambda _event: self.refresh_account_status())
+        self.account_box.bind("<<ComboboxSelected>>", self.select_account)
         ttk.Label(accounts, textvariable=self.quota_status, style='Muted.TLabel').grid(row=1, column=0, columnspan=4, sticky='w', pady=(7, 0))
         check = ttk.Button(accounts, text="检查登录", command=self.check_login)
         check.grid(row=0, column=2, padx=(8, 8))
@@ -137,13 +143,23 @@ class Publisher:
         self.append_log("等待操作。上传及发布期间会打开浏览器，请保持窗口开启。\n")
 
     def refresh_accounts(self):
-        aliases = sorted(p.stem[len("tencent_"):] for p in (ROOT / "cookies").glob("tencent_*.json"))
-        self.account_box["values"] = aliases or ["creator"]
-        if self.account.get() not in (aliases or ["creator"]):
-            self.account.set((aliases or ["creator"])[0])
+        cookies = ROOT / "cookies"
+        aliases = sorted(p.stem[len("tencent_"):] for p in cookies.glob("tencent_*.json")) or ["creator"]
+        self.account_names = account_labels(aliases, cookies)
+        self.account_box["values"] = list(self.account_names.values())
+        if self.account.get() not in self.account_names:
+            self.account.set(aliases[0])
+        self.refresh_account_status()
+
+    def select_account(self, _event=None):
+        index = self.account_box.current()
+        aliases = list(self.account_names)
+        if 0 <= index < len(aliases):
+            self.account.set(aliases[index])
         self.refresh_account_status()
 
     def refresh_account_status(self):
+        self.account_display.set(self.account_names.get(self.account.get(), self.account.get()))
         saved = (ROOT / "cookies" / f"tencent_{self.account.get()}.json").is_file()
         self.login_status.set("已保存登录会话 · 发布前会自动检查有效性" if saved else "尚未保存登录会话 · 请先扫码登录")
         try:
@@ -231,7 +247,7 @@ class Publisher:
             messagebox.showwarning("请检查发布设置", str(exc), parent=self.root)
             return
         action = "保存草稿" if draft else "定时发表" if schedules[0] else "立即发布"
-        prompt = f"账号：{self.account.get()}\n视频：{path.name}\n短标题：{title}\n视频描述：{description[:350] or '（未填写）'}\n话题：{tags or '（未填写）'}\n\n"
+        prompt = f"账号：{self.account_display.get()}\n视频：{path.name}\n短标题：{title}\n视频描述：{description[:350] or '（未填写）'}\n话题：{tags or '（未填写）'}\n\n"
         prompt += options_summary(settings, schedules) + "\n\n"
         prompt += "将保存为视频号草稿。" if draft else "确认后会上传并提交定时发表。" if schedules[0] else "确认后会上传并立即发布到视频号。"
         if not messagebox.askyesno(f"确认{action}", prompt, parent=self.root):

@@ -180,8 +180,9 @@ def video_series(folder):
     return dict(sorted(groups.items()))
 
 
-def resolve_series(records, folder, selected=None):
-    groups = video_series(folder)
+def resolve_series(records, folder, selected=None, *, groups=None):
+    if groups is None:
+        groups = video_series(folder)
     if selected is not None:
         selected = selected.casefold()
         if selected not in groups:

@@ -10,12 +10,14 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-TOP_LEVEL = (
+BUNDLE_FILES = (
     'video_channels_batch.py', 'video_channels_gui.py', 'publisher_options.py',
     'publisher_lock.py', 'batch_table.py', 'channels_parallel.py', 'publisher_preferences.py', 'channels_first_comments.py',
     'daily_publish_limit.py', 'publish_verification.py', 'sau_cli.py',
     'channels_statistics.py', 'channels_analytics.py', 'channels_report.py',
     'desktop_launcher.pyw', 'installed_self_test.py', 'conf.py', 'LICENSE',
+    'assets/publisher-mark.ico', 'channels_account_names.py', 'batch_preview.py', 'tiktok_queue.py', 'tiktok_gui.py',
+    'tiktok_batch.py', 'tiktok_studio.py',
 )
 SOURCE_PACKAGES = ('sau_commands', 'uploader', 'utils', 'myUtils')
 
@@ -26,14 +28,16 @@ def ignore_runtime(directory, names):
 
 
 def prepare(stage, browsers):
-    for name in TOP_LEVEL:
+    for name in BUNDLE_FILES:
         if not (ROOT/name).is_file():
             raise FileNotFoundError(ROOT/name)
     if stage.exists():
         raise ValueError(f'Use a new empty staging path; existing evidence will not be replaced: {stage}')
     stage.mkdir(parents=True)
-    for name in TOP_LEVEL:
-        shutil.copy2(ROOT/name, stage/name)
+    for name in BUNDLE_FILES:
+        target = stage/name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT/name, target)
     for package in SOURCE_PACKAGES:
         for source in (ROOT/package).rglob('*.py'):
             if '__pycache__' in source.parts or 'node_modules' in source.parts:
@@ -51,6 +55,7 @@ def prepare(stage, browsers):
     for source in base.iterdir():
         if source.is_file() and source.suffix.lower() in ('.exe', '.dll', '.txt'):
             shutil.copy2(source, runtime/source.name)
+    metadata.version('playwright')
     site_packages = Path(sys.prefix)/'Lib/site-packages'
     shutil.copytree(site_packages, runtime/'Lib/site-packages', ignore=ignore_runtime, dirs_exist_ok=True)
     for source in browsers.iterdir():
@@ -72,14 +77,14 @@ def prepare(stage, browsers):
         if not path.is_file(): continue
         relative = path.relative_to(stage).as_posix()
         if relative.startswith(('cookies/', 'logs/', '.local/gui/batches/', '.local/gui/daily-quota/',
-                                '.local/gui/first-comments/', '.local/gui/batch-paths.json', '.local/gui/reports/', '.local/gui/diagnostics/', '.local/gui/completions/', '.local/gui/history-backups/')):
+                                '.local/gui/first-comments/', '.local/gui/tiktok/', '.local/gui/batch-paths.json', '.local/gui/reports/', '.local/gui/diagnostics/', '.local/gui/completions/', '.local/gui/history-backups/')):
             raise ValueError(f'Private state must never be packaged: {relative}')
         if '__editable__' in relative or path.suffix.lower() in ('.mp4','.xlsx','.log'):
             raise ValueError(f'Unexpected private/development file: {relative}')
         with path.open('rb') as stream:
             digest = hashlib.file_digest(stream,'sha256').hexdigest()
         entries.append({'path':relative,'bytes':path.stat().st_size,'sha256':digest})
-    manifest = {'version':'1.12.10','architecture':'windows-x64','private_state_included':False,
+    manifest = {'version':'1.12.19','architecture':'windows-x64','private_state_included':False,
                 'files':entries, 'total_bytes':sum(entry['bytes'] for entry in entries)}
     (stage/'bundle-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'stage':str(stage),'files':len(entries),'bytes':manifest['total_bytes']},ensure_ascii=False),flush=True)
