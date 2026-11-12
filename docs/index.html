@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>微信视频号批量发布工具｜Windows 版支持 TikTok</title>
-  <meta name="description" content="免费开源的微信视频号批量发布工具，支持 Excel/CSV 文案导入、定时发表、断点续发和近 7 天播放 Top10 分析。Windows 版也支持通过 TikTok Studio 批量发布。">
+  <meta name="description" content="免费开源的微信视频号批量发布工具，支持 Excel/CSV 文案导入、定时发表和 Top10 分析。视频号和 TikTok 各自配置后，在 Windows 多平台页勾选即可并行发布。">
   <meta name="google-site-verification" content="7VLSNbkmQ6yaBF-zMmbdyLbGFfNeHB9nKnCohmP5mqA">
   <link rel="canonical" href="https://itai365com-pixel.github.io/wechat-channels-publisher-windows/">
   <meta property="og:type" content="website">
   <meta property="og:title" content="微信视频号批量发布工具｜Windows 版支持 TikTok">
   <meta property="og:description" content="用 Excel 或 CSV 整理文案，批量发布视频号和 TikTok 视频，并核对后台结果。提供 Windows 离线安装包。">
   <meta property="og:url" content="https://itai365com-pixel.github.io/wechat-channels-publisher-windows/">
-  <meta property="og:image" content="https://itai365com-pixel.github.io/wechat-channels-publisher-windows/screenshots/batch-publishing-v1.12.19.png">
+  <meta property="og:image" content="https://itai365com-pixel.github.io/wechat-channels-publisher-windows/screenshots/multiplatform-v1.12.21.png">
   <style>
     :root{color-scheme:light;--ink:#172c29;--soft:#425c55;--accent:#08644d;--line:#d7e4dd;--paper:#f6faf7}
     *{box-sizing:border-box}
@@ -65,16 +65,16 @@
         <div>
           <p class="platform">免费开源 · Windows 10 / 11 x64</p>
           <h1>微信视频号批量发布工具</h1>
-          <p class="lead">用 Excel 或 CSV 整理文案，批量上传、定时发表视频号作品，并核对后台结果。也可以切换到 <a href="#tiktok">TikTok 批量发布</a>，导入文案和话题，按队列发布。</p>
+          <p class="lead">用 Excel 或 CSV 整理文案，批量上传、定时发表视频号作品，并核对后台结果。视频号和 TikTok 各自配置好后，到 <a href="#multi">多平台发布</a> 勾选并启动两边的队列。</p>
           <div class="actions">
-            <a class="download" href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.19/wechat-channels-publisher-windows-v1.12.19-x64.exe">下载 Windows 安装包</a>
+            <a class="download" href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.21/wechat-channels-publisher-windows-v1.12.21-x64.exe">下载 Windows 安装包</a>
             <a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/latest">版本与 SHA256 校验</a>
           </div>
-          <p class="note">v1.12.19 · 内置 Python 和 Chromium。TikTok 发布需安装 Google Chrome。</p>
+          <p class="note">v1.12.21 · 内置 Python 和 Chromium。TikTok 发布需安装 Google Chrome。</p>
         </div>
         <figure>
-          <a href="screenshots/batch-publishing-v1.12.19.png"><img src="screenshots/batch-publishing-v1.12.19.png" alt="v1.12.19 视频号批量发布工具的文案预览、发布队列和 TikTok 切换页签"></a>
-          <figcaption>v1.12.19 视频号批量发布界面，使用示例数据</figcaption>
+          <a href="screenshots/batch-publishing-v1.12.21.png"><img src="screenshots/batch-publishing-v1.12.21.png" alt="v1.12.21 视频号批量发布工具的文案预览、发布队列和多平台切换页签"></a>
+          <figcaption>v1.12.21 视频号批量发布界面，使用示例数据</figcaption>
         </figure>
       </div>
     </div>
@@ -116,8 +116,25 @@
         <a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows#tiktok-批量发布">查看 TikTok 文案表和操作说明 ↗</a>
       </div>
       <figure>
-        <a href="screenshots/tiktok-batch-publishing-v1.12.19.png"><img src="screenshots/tiktok-batch-publishing-v1.12.19.png" alt="v1.12.19 TikTok 批量发布界面，显示示例泰文文案、话题和视频队列" loading="lazy"></a>
-        <figcaption>v1.12.19 TikTok 批量发布界面，使用示例数据</figcaption>
+        <a href="screenshots/tiktok-batch-publishing-v1.12.21.png"><img src="screenshots/tiktok-batch-publishing-v1.12.21.png" alt="v1.12.21 TikTok 批量发布界面，显示示例泰文文案、话题和视频队列" loading="lazy"></a>
+        <figcaption>v1.12.21 TikTok 批量发布界面，使用示例数据</figcaption>
+      </figure>
+    </section>
+    <section class="guide" aria-labelledby="multi">
+      <div>
+        <h2 id="multi">多平台发布</h2>
+        <ol>
+          <li>在「视频号」页选择账号、素材和文案，设置发布时间并更新预览。</li>
+          <li>在「TikTok」页加载账号队列或导入文案表，按需填写本批条数。</li>
+          <li>切到「多平台发布」，勾选要发的平台，点击「发布到勾选的平台」。</li>
+        </ol>
+        <div class="question">
+          <p>两个平台可使用不同素材和文案。勾选两边时，各自沿用原设置并行发布。</p>
+        </div>
+      </div>
+      <figure>
+        <a href="screenshots/multiplatform-v1.12.21.png"><img src="screenshots/multiplatform-v1.12.21.png" alt="多平台发布页，显示视频号和 TikTok 各自已经准备好的示例队列" loading="lazy"></a>
+        <figcaption>v1.12.21 多平台发布界面，使用示例数据</figcaption>
       </figure>
     </section>
     <section class="guide" aria-labelledby="analytics">

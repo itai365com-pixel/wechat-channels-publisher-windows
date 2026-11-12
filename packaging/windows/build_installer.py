@@ -17,7 +17,7 @@ BUNDLE_FILES = (
     'channels_statistics.py', 'channels_analytics.py', 'channels_report.py',
     'desktop_launcher.pyw', 'installed_self_test.py', 'conf.py', 'LICENSE',
     'assets/publisher-mark.ico', 'channels_account_names.py', 'batch_preview.py', 'tiktok_queue.py', 'tiktok_gui.py',
-    'tiktok_batch.py', 'tiktok_studio.py',
+    'tiktok_batch.py', 'tiktok_studio.py', 'dual_publish_gui.py',
 )
 SOURCE_PACKAGES = ('sau_commands', 'uploader', 'utils', 'myUtils')
 
@@ -84,7 +84,7 @@ def prepare(stage, browsers):
         with path.open('rb') as stream:
             digest = hashlib.file_digest(stream,'sha256').hexdigest()
         entries.append({'path':relative,'bytes':path.stat().st_size,'sha256':digest})
-    manifest = {'version':'1.12.19','architecture':'windows-x64','private_state_included':False,
+    manifest = {'version':'1.12.21','architecture':'windows-x64','private_state_included':False,
                 'files':entries, 'total_bytes':sum(entry['bytes'] for entry in entries)}
     (stage/'bundle-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'stage':str(stage),'files':len(entries),'bytes':manifest['total_bytes']},ensure_ascii=False),flush=True)

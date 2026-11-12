@@ -33,6 +33,7 @@ class TikTokPanel:
         self.events = queue.Queue()
         self.items = {}
         self.active = []
+        self.loaded_paths = ("", "")
         self.store = None
         self.busy = False
         self.build()
@@ -161,6 +162,7 @@ class TikTokPanel:
     def load_state(self, state):
         self.items = state["items"]
         self.active = state["active"]
+        self.loaded_paths = (state.get("folder", ""), state.get("table", ""))
         self.render()
         write_local_json(self.prefs, {"account": self.store.username})
         self.status.set(f"@{self.store.username} · 当前队列 {len(self.active)} 条。排期留空时按开始处理的时间占用额度。")
@@ -212,25 +214,35 @@ class TikTokPanel:
             return
         self.start_studio(store, selected=None)
 
+    def selected_batch(self, state=None):
+        if self.busy:
+            raise ValueError("TikTok 正在执行任务。")
+        self.check_account()
+        if state is None:
+            state = self.store.read()
+            paths = (state.get("folder", ""), state.get("table", ""))
+        else:
+            paths = self.loaded_paths
+        if (self.folder.get().strip(), self.table.get().strip()) != paths:
+            raise ValueError("TikTok 的素材或表格路径已变化，请在 TikTok 页重新读取。")
+        selected = [key for key in state["active"]
+                    if state["items"][key]["status"] in ("pending", "checking") and not state["items"][key]["error"]]
+        count = self.batch_count.get().strip()
+        if count and (not count.isdecimal() or int(count) < 1):
+            raise ValueError("本批条数请填正整数，或留空使用当前队列。")
+        return self.store, selected[:int(count)] if count else selected
+
     def start_batch(self):
         if self.busy:
             return
         try:
-            self.check_account()
-            state = self.store.read()
-            selected = [key for key in state["active"]
-                        if state["items"][key]["status"] in ("pending", "checking") and not state["items"][key]["error"]]
-            count = self.batch_count.get().strip()
-            if count and (not count.isdecimal() or int(count) < 1):
-                raise ValueError("本批条数请填正整数，或留空使用当前队列。")
-            if count:
-                selected = selected[:int(count)]
+            store, selected = self.selected_batch()
             if not selected:
                 raise ValueError("当前队列没有待发布或待核对的视频。")
         except (OSError, ValueError) as exc:
             self.status.set(str(exc))
             return
-        self.start_studio(self.store, selected)
+        self.start_studio(store, selected)
 
     def start_studio(self, store, selected):
         self.stop_requested.clear()

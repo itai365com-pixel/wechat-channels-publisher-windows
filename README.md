@@ -2,17 +2,19 @@
 
 **WeChat Channels & TikTok Batch Publisher for Windows**
 
-这是一款免费开源的 **微信视频号批量发布工具**，适用于 Windows 10 / 11。支持 Excel / CSV 文案导入、批量上传、定时发表、断点续发、发布去重和近 7 天播放 Top10 分析。新版可在同一窗口切换到 **TikTok 批量发布**，按视频文件名导入文案和话题，并通过 TikTok Studio 逐条提交和核验。
+这是一款免费开源的 **微信视频号批量发布工具**，适用于 Windows 10 / 11。支持 Excel / CSV 文案导入、批量上传、定时发表、断点续发、发布去重和近 7 天播放 Top10 分析，也支持通过 TikTok Studio 批量发布。
 
-<a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.19/wechat-channels-publisher-windows-v1.12.19-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载微信视频号和 TikTok 批量发布工具 Windows x64 安装包"></a>
+<a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.21/wechat-channels-publisher-windows-v1.12.21-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载微信视频号和 TikTok 批量发布工具 Windows x64 安装包"></a>
 
-[免费下载 v1.12.19 Windows 安装包](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.19/wechat-channels-publisher-windows-v1.12.19-x64.exe) · [版本说明与 SHA256 校验](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.12.19) · [中文更新日志](CHANGELOG.md)
+[免费下载 v1.12.21 Windows 安装包](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.21/wechat-channels-publisher-windows-v1.12.21-x64.exe) · [版本说明与 SHA256 校验](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.12.21) · [中文更新日志](CHANGELOG.md)
 
-[项目主页](https://itai365com-pixel.github.io/wechat-channels-publisher-windows/) · [视频号使用指南](#如何批量发布视频号视频) · [TikTok 使用指南](#tiktok-批量发布)
+[项目主页](https://itai365com-pixel.github.io/wechat-channels-publisher-windows/) · [视频号使用指南](#如何批量发布视频号视频) · [TikTok 使用指南](#tiktok-批量发布) · [多平台发布](#从一个页面启动多平台发布)
 
-<a href="docs/screenshots/batch-publishing-v1.12.19.png"><img src="docs/screenshots/batch-publishing-v1.12.19.png" width="32%" alt="v1.12.19 视频号批量发布界面，显示平台切换页签和示例视频队列"></a> <a href="docs/screenshots/tiktok-batch-publishing-v1.12.19.png"><img src="docs/screenshots/tiktok-batch-publishing-v1.12.19.png" width="32%" alt="v1.12.19 TikTok 批量发布界面，显示泰文示例文案和发布队列"></a> <a href="docs/screenshots/top10-analysis.png"><img src="docs/screenshots/top10-analysis.png" width="32%" alt="视频号近 7 天播放 Top10 分析报告，显示示例播放数据与选题建议"></a>
+**多平台发布：** 在「视频号」和「TikTok」页分别配置账号、素材、文案和发布时间。切到「多平台发布」，勾选要发的平台，点击「发布到勾选的平台」。勾选两个平台时，两边按各自设置并行发布。
 
-从左到右是 v1.12.19 的视频号批量发布、TikTok 批量发布，以及视频号 Top10 分析报告。三张图均使用示例数据，点击可查看原图。
+<a href="docs/screenshots/multiplatform-v1.12.21.png"><img src="docs/screenshots/multiplatform-v1.12.21.png" width="59%" alt="v1.12.21 多平台发布页，勾选视频号和 TikTok 后启动已载入的示例队列"></a> <a href="docs/screenshots/top10-analysis.png"><img src="docs/screenshots/top10-analysis.png" width="39%" alt="视频号近 7 天播放 Top10 分析报告，显示示例播放数据与选题建议"></a>
+
+左图为多平台发布，右图为视频号 Top10 分析。截图均使用示例数据，点击可查看原图。
 
 离线安装包内置 Python 和视频号使用的 Chromium。使用 TikTok 发布需安装 Google Chrome。登录、发布和读取统计时需要联网。
 
@@ -23,6 +25,8 @@
 - **视频号内容复盘**：核对哪些作品已经发表，查看近 7 天新发作品中累计播放量最高的 10 条。
 
 ## 如何批量发布视频号视频
+
+<a href="docs/screenshots/batch-publishing-v1.12.21.png"><img src="docs/screenshots/batch-publishing-v1.12.21.png" width="70%" alt="v1.12.21 视频号页的示例文案、发布队列和独立发布设置"></a>
 
 1. 下载并运行 Releases 里的 `.exe`，从开始菜单打开「视频号批量发布助手」。单条发布也有单独入口。
 2. 选择本地账号并用微信扫码登录。
@@ -62,6 +66,8 @@ ep002.mp4,第二条短标题,这里填写第二条视频简介
 
 ## TikTok 批量发布
 
+<a href="docs/screenshots/tiktok-batch-publishing-v1.12.21.png"><img src="docs/screenshots/tiktok-batch-publishing-v1.12.21.png" width="70%" alt="v1.12.21 TikTok 页的示例泰文文案、话题和本批条数"></a>
+
 1. 在批量发布助手顶部切换到「TikTok」，填写 TikTok Studio 显示的 `@用户名`。
 2. 选择视频目录和 Excel（`.xlsx`）、CSV 或 TSV 文案表，点击「读取表格 / 保存队列」。必填列为「视频文件名」和「TikTok 文案」（也可用「泰文文案」），「话题」与「曼谷发布时间」可选。
 3. 首次点击「登录发布浏览器」，在打开的 Google Chrome 窗口登录同一账号。发布浏览器的登录会话和队列按账号保存在本机。
@@ -76,6 +82,16 @@ lesson002.mp4,คำจีนวันนี้: 谢谢 แปลว่า ข�
 - 填写「曼谷发布时间」时使用文本格式 `YYYY-MM-DD HH:MM`。助手在电脑上等到时间再提交，等待期间请保持软件运行。
 - 助手默认每个 TikTok 账号最近 60 分钟最多提交 2 条，每个曼谷自然日最多 10 条。达到额度后等待下一时段。
 - 队列按账号和视频内容识别已登记的作品。提交结果未知时会先核对后台再决定下一步。也可手动在 Studio 排期，核对后在队列里登记。
+
+## 从一个页面启动多平台发布
+
+v1.12.21 的「多平台发布」直接使用各平台页已经准备好的队列：
+
+1. 在「视频号」页选账号、素材和文案，更新预览并核对发布设置。
+2. 在「TikTok」页加载账号队列或导入表格，按需设置本批条数。
+3. 切到「多平台发布」，核对两边的账号与队列，勾选需要发布的平台并启动。
+
+两个平台可以使用不同的素材、文案和发布时间。勾选两边时，两条队列并行运行，各自遵守原有额度、核验和去重规则。
 
 ## 常见问题
 

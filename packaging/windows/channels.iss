@@ -8,8 +8,8 @@
 [Setup]
 AppId={{C6C9A16B-1F7E-4A40-916D-8D9744F79E29}
 AppName=视频号发布助手
-AppVersion=1.12.19
-AppVerName=视频号发布助手 1.12.19
+AppVersion=1.12.21
+AppVerName=视频号发布助手 1.12.21
 AppPublisher=Social Auto Upload 本地定制版
 AppPublisherURL=https://github.com/dreammis/social-auto-upload
 DefaultDirName={localappdata}\Programs\SAUChannels
@@ -19,7 +19,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#OutputPath}
-OutputBaseFilename=视频号发布助手_安装包_v1.12.19_Win64
+OutputBaseFilename=视频号发布助手_安装包_v1.12.21_Win64
 Compression=lzma2/normal
 SolidCompression=yes
 LZMANumBlockThreads=2

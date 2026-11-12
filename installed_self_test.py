@@ -107,6 +107,13 @@ def main(arguments=None):
                 app = BatchPublisher(window)
                 window.update_idletasks()
                 assert window.title().startswith('视频号批量发布助手 v') and not app.busy
+                app.platform.set("dual")
+                app.switch_platform()
+                assert app.dual_page.winfo_manager() == "pack"
+                assert all(not flag.get() for flag in app.dual_page.enabled.values())
+                assert app.dual_page.publish_button.instate(("disabled",))
+                app.platform.set("wechat")
+                app.switch_platform()
                 code, log = app.execute_cli(['--help'], '安装自检')
                 assert code == 0, log.read_text(encoding='utf-8')
                 assert 'upload-video' in log.read_text(encoding='utf-8')

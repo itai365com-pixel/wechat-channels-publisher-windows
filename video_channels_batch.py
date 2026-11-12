@@ -148,6 +148,7 @@ class BatchPublisher(Publisher):
         self.items = []
         self.batch_results = None
         self.preview_config = None
+        self.manifest_config = None
         self.preview_generation = 0
         self.preview_loading = False
         self.preview_running = False
@@ -157,7 +158,7 @@ class BatchPublisher(Publisher):
         self.last_preview_context = None
         self.last_preview_selection = None
         super().__init__(root)
-        root.title("视频号批量发布助手 v1.12.19")
+        root.title("视频号批量发布助手 v1.12.21")
         root.geometry(f"{min(1420, root.winfo_screenwidth() - 100)}x{min(960, root.winfo_screenheight() - 100)}")
         root.minsize(1060, 850)
         if auto_preview:
@@ -171,7 +172,7 @@ class BatchPublisher(Publisher):
         style = ttk.Style(self.root)
         style.configure("Platform.Toolbutton", padding=(13, 2), font=("Microsoft YaHei UI", 10))
         style.map("Platform.Toolbutton", background=[("selected", "#d6e9df"), ("active", "#e8f2ed")])
-        for value, label in (("wechat", "视频号"), ("tiktok", "TikTok")):
+        for value, label in (("wechat", "视频号"), ("tiktok", "TikTok"), ("dual", "多平台发布")):
             ttk.Radiobutton(switch, text=label, value=value, variable=self.platform,
                             style="Platform.Toolbutton", command=self.switch_platform).pack(side="left", padx=(0, 6))
         self.platform_pages = ttk.Frame(self.root)
@@ -180,6 +181,7 @@ class BatchPublisher(Publisher):
         self.wechat_page.pack(fill="both", expand=True)
         self.tiktok_page = None
         self.tiktok_panel = None
+        self.dual_page = None
         panel = scrollable_panel(self.wechat_page, (26, 12))
         panel.columnconfigure(1, weight=1)
         panel.rowconfigure(14, weight=1)
@@ -314,19 +316,32 @@ class BatchPublisher(Publisher):
         self.log.grid(row=14, column=0, columnspan=3, sticky="ew")
         self.append_log("就绪。原视频和表格会保留在原位置；选中一条可查看完整文案。\n")
 
-    def switch_platform(self):
-        if self.platform.get() == "tiktok":
-            if self.tiktok_page is None:
-                from tiktok_gui import TikTokPanel
+    def ensure_tiktok_page(self):
+        if self.tiktok_page is None:
+            from tiktok_gui import TikTokPanel
 
-                self.tiktok_page = ttk.Frame(self.platform_pages)
-                self.tiktok_panel = TikTokPanel(self.tiktok_page)
-            self.wechat_page.pack_forget()
-            self.tiktok_page.pack(fill="both", expand=True)
+            self.tiktok_page = ttk.Frame(self.platform_pages)
+            self.tiktok_panel = TikTokPanel(self.tiktok_page)
+        return self.tiktok_page
+
+    def switch_platform(self):
+        target = self.platform.get()
+        if target == "tiktok":
+            page = self.ensure_tiktok_page()
+        elif target == "dual":
+            self.ensure_tiktok_page()
+            if self.dual_page is None:
+                from dual_publish_gui import DualPublishPanel
+
+                self.dual_page = DualPublishPanel(self.platform_pages, self)
+            self.dual_page.refresh()
+            page = self.dual_page
         else:
-            if self.tiktok_page is not None:
-                self.tiktok_page.pack_forget()
-            self.wechat_page.pack(fill="both", expand=True)
+            page = self.wechat_page
+        for current in self.platform_pages.pack_slaves():
+            if current is not page:
+                current.pack_forget()
+        page.pack(fill="both", expand=True)
 
     def remember_paths(self):
         try:
@@ -527,80 +542,118 @@ class BatchPublisher(Publisher):
         ttk.Button(buttons, text="保存到队列", command=save).pack(side="left")
         entry.focus_set()
 
+    def publishing_preview(self, *, allow_resume=True):
+        if self.busy:
+            raise ValueError("视频号正在执行任务。")
+        if self.preview_loading:
+            raise ValueError("视频号正在读取表格。")
+        if not self.items:
+            raise ValueError("请在视频号页读取文案表。")
+        config = self.current_config()
+        loaded = (getattr(self, "manifest", None) and self.items is self.manifest["items"]
+                  and self.account.get() == self.manifest["account"]
+                  and config == self.manifest_config)
+        if allow_resume and loaded and not self.manifest.get("draft"):
+            return "resume"
+        if config != self.preview_config:
+            raise ValueError("视频号设置已变化，请在视频号页更新预览。")
+        return "new"
+
+    def prepare_batch(self, draft=False, *, continue_loaded=False):
+        kind = self.publishing_preview(allow_resume=continue_loaded)
+        account = self.account.get()
+        if not (ROOT / "cookies" / f"tencent_{account}.json").is_file():
+            raise ValueError("请先在视频号页扫码登录。")
+        if continue_loaded and kind == "resume":
+            from channels_parallel import ParallelPublisher
+
+            path = self.manifest_path
+            record = json.loads(path.read_text(encoding="utf-8"))
+            checker = ParallelPublisher(path, record=record)
+            jobs = checker.preflight()
+            action = "批量定时发表" if record["options"]["scheduled"] else "批量发布"
+            question = f"账号：{self.account_display.get()}\n继续队列：{len(jobs)} 条待处理\n"
+            question += options_summary(record["options"], [row.get("schedule") for row in jobs])
+            return action, record, path, question, len(jobs)
+
+        issues, bad = [], []
+        for row in self.items:
+            name = Path(row["file"]).name
+            title = row.get("short_title") or row.get("title", "")
+            if not title or (invalid := short_title_issues(title)):
+                issues.append(f"{name}：{'；'.join(invalid) if title else '短标题不能为空'}")
+            if row.get("decode_error"):
+                bad.append(name)
+        if issues:
+            raise ValueError("请先编辑以下短标题：\n" + "\n".join(issues[:5]))
+        if bad:
+            raise ValueError("以下视频无法解码：" + "、".join(bad[:10]))
+        source = Path(self.table_path.get()).stat()
+        if (source.st_size, source.st_mtime_ns) != self.table_signature:
+            raise ValueError("表格已修改，请在视频号页更新预览。")
+        for history in BATCH_DIR.glob("*.json"):
+            previous = json.loads(history.read_text(encoding="utf-8"))
+            if previous.get("account") == account and any(row.get("status") == "running" for row in previous.get("items", [])):
+                raise ValueError("此视频号账号还有运行中或尚未核对结束的批次，请先处理原队列。")
+        settings = self.options.snapshot()
+        eligible, skipped = filter_previously_completed(self.items, account, draft)
+        schedules = planned_times(settings, len(eligible), draft=draft) if eligible else []
+        jobs = [{**item, "status": "pending", "schedule": when} for item, when in zip(eligible, schedules)]
+        action = "批量保存草稿" if draft else "批量定时发表" if settings["scheduled"] else "批量发布"
+        record = {"account": account, "draft": draft, "options": settings, "source": self.table_path.get(),
+                  "sheet": self.sheet.get(), "items": jobs, "parallel_tabs": 2, "skipped_completed": skipped}
+        names = "、".join(Path(row["file"]).stem for row in jobs)
+        question = f"账号：{self.account_display.get()}\n数量：{len(jobs)} 条\n视频：{names}\n文案来源：{Path(record['source']).name} / {record['sheet']}\n\n"
+        question += options_summary(settings, schedules)
+        if skipped:
+            question += f"\n已核验的 {len(skipped)} 条会跳过。"
+        if not draft and jobs:
+            question += "\n每轮最多 6 条，完成后至少等 1 小时。达到每日额度后在曼谷次日继续。"
+            if schedules[0]:
+                question += "\n等待后如已来不及提交定时发表，队列会暂停。"
+        return action, record, None, question, len(jobs)
+
+    def start_prepared_batch(self, plan):
+        action, record, path, _, count = plan
+        if self.busy or record["account"] != self.account.get():
+            raise ValueError("视频号账号或运行状态已变化，请重新确认。")
+        if not count:
+            return False
+        if path is None:
+            BATCH_DIR.mkdir(parents=True, exist_ok=True)
+            path = BATCH_DIR / f"{datetime.now():%Y%m%d-%H%M%S-%f}.json"
+            record["created_at"] = datetime.now().astimezone().isoformat()
+            if record["options"]["declare_original"]:
+                record["original_terms_batch_confirmed_at"] = record["created_at"]
+        self.manifest_path, self.manifest = path, record
+        self.manifest_config = self.current_config()
+        self.items = record["items"]
+        self.tree.delete(*self.tree.get_children())
+        labels = {"completed": "已发布", "skipped_completed": "已发布，已跳过", "failed_before_submit": "待重试"}
+        for index, row in enumerate(self.items):
+            self.tree.insert("", "end", iid=str(index), values=(index + 1, Path(row["file"]).name,
+                row.get("short_title") or row["title"], row.get("publish_desc", row.get("desc", "")),
+                row.get("schedule") or "立即发表", labels.get(row["status"], "待发布")))
+        self.summary.set(f"本次待处理 {count} 条 · 已自动跳过 {len(record.get('skipped_completed', []))} 条已核验视频")
+        self.save_manifest()
+        self.stop_requested.clear()
+        self.stop_button.configure(state="normal")
+        self.batch_results = None
+        if self.start([], action):
+            return True
+        self.stop_button.configure(state="disabled")
+        return False
+
     def publish_batch(self, draft):
         if self.busy or self.preview_loading:
             return
-        if not self.items:
-            messagebox.showwarning("请先预览", "请先读取文案表并检查视频匹配结果。", parent=self.root)
-            return
-        current = self.current_config()
-        if current != self.preview_config:
-            messagebox.showwarning("请更新预览", "设置已变化，请先更新预览再发布。", parent=self.root)
-            return
         try:
-            issues = [f"{Path(row['file']).name}：{'；'.join(short_title_issues(row['short_title'] or row['title']))}" for row in self.items if short_title_issues(row['short_title'] or row['title'])]
-            if issues:
-                raise ValueError("请先编辑以下短标题：\n" + "\n".join(issues[:5]))
-            bad = [Path(row['file']).name for row in self.items if row.get('decode_error')]
-            if bad:
-                raise ValueError('以下视频无法解码：' + '、'.join(bad[:10]) + '。请替换视频后更新预览，或使用“指定文件”排除这些条目。')
-            source = Path(self.table_path.get()).stat()
-            if (source.st_size, source.st_mtime_ns) != self.table_signature:
-                raise ValueError("表格已修改，请更新预览后再发布。")
-            if not (ROOT / "cookies" / f"tencent_{self.account.get()}.json").is_file():
-                raise ValueError("请先扫码登录视频号。")
-            for history in BATCH_DIR.glob("*.json"):
-                previous_batch = json.loads(history.read_text(encoding="utf-8"))
-                if previous_batch.get("account") == self.account.get() and any(row.get("status") == "running" for row in previous_batch.get("items", [])):
-                    raise ValueError("此账号还有运行中或尚未核对结束的批次，请先处理旧窗口中的任务。")
-            settings = self.options.snapshot()
-            eligible, skipped = filter_previously_completed(self.items, self.account.get(), draft)
-            for item in skipped:
-                self.append_log(f'自动跳过已核验发表的视频：{Path(item["file"]).name}\n')
-                for index, preview in enumerate(self.items):
-                    if preview['file'] == item['file']:
-                        self.tree.set(str(index), 'status', '已发布，自动跳过')
-            if not eligible:
-                messagebox.showinfo('无需重复发布', '所选视频均已有后台核验完成记录，已全部跳过。', parent=self.root)
-                return
-            schedules = planned_times(settings, len(eligible), draft=draft)
-            jobs = []
-            for index, item in enumerate(eligible):
-                jobs.append({**item, "status": "pending", "schedule": schedules[index]})
-            action = "批量保存草稿" if draft else "批量定时发表" if settings["scheduled"] else "批量发布"
-            names = "、".join(Path(item["file"]).stem for item in jobs)
-            question = f"账号：{self.account_display.get()}\n数量：{len(jobs)} 条\n视频：{names}\n文案来源：{Path(self.table_path.get()).name} / {self.sheet.get()}\n\n"
-            question += options_summary(settings, schedules) + "\n\n"
-            if skipped:
-                question += f'已自动跳过 {len(skipped)} 条后台核验完成的视频。\n'
-            question += "确认后将逐条上传并保存草稿。" if draft else "确认后将逐条上传并提交定时发表。" if schedules[0] else "确认后将逐条上传并立即发表到视频号。"
-            question += "\n最多同时打开 2 个标签上传，按封面就绪顺序逐条提交。"
-            if not draft:
-                question += '\n每轮最多 6 条，完成后至少等 1 小时。满每日额度后在曼谷次日自动继续。请保持程序运行。'
-                if schedules[0]:
-                    question += '\n各条平台定时时间按预览保留，等待后如已来不及提交，队列会暂停。'
-            if not messagebox.askyesno(f"确认{action}", question, parent=self.root):
-                return
-            BATCH_DIR.mkdir(parents=True, exist_ok=True)
-            self.manifest_path = BATCH_DIR / f"{datetime.now():%Y%m%d-%H%M%S-%f}.json"
-            self.manifest = {"account": self.account.get(), "draft": draft, "options": settings, "source": self.table_path.get(), "sheet": self.sheet.get(), "created_at": datetime.now().astimezone().isoformat(), "items": jobs, "parallel_tabs": 2}
-            self.manifest['skipped_completed'] = skipped
-            self.items = jobs
-            for key in self.tree.get_children():
-                self.tree.delete(key)
-            for index, row in enumerate(jobs):
-                self.tree.insert('', 'end', iid=str(index), values=(index + 1, Path(row['file']).name,
-                    row.get('short_title') or row['title'], row.get('publish_desc', row.get('desc', '')),
-                    row.get('schedule') or '立即发表', '待发布'))
-            self.summary.set(f'本次待发布 {len(jobs)} 条 · 已自动跳过 {len(skipped)} 条已核验视频')
-            if settings['declare_original']:
-                self.manifest['original_terms_batch_confirmed_at'] = datetime.now().astimezone().isoformat()
-            self.save_manifest()
-            self.stop_requested.clear()
-            self.stop_button.configure(state="normal")
-            self.batch_results = None
-            if not self.start([], action):
-                self.stop_button.configure(state="disabled")
+            plan = self.prepare_batch(draft, continue_loaded=not draft)
+            action, _, _, question, count = plan
+            if not count:
+                messagebox.showinfo("无需重复发布", "所选视频均已有后台核验记录，已跳过。", parent=self.root)
+            elif messagebox.askyesno(f"确认{action}", question, parent=self.root):
+                self.start_prepared_batch(plan)
         except Exception as exc:
             messagebox.showerror("无法开始批次", str(exc), parent=self.root)
 
@@ -708,6 +761,7 @@ class BatchPublisher(Publisher):
             self.options.scheduled.set(settings['scheduled'])
             self.options.first.set(settings.get('first_time', ''))
             self.options.interval.set(str(settings['interval']))
+            self.manifest_config = self.current_config()
             self.items = record['items']
             for key in self.tree.get_children():
                 self.tree.delete(key)
@@ -792,6 +846,10 @@ class BatchPublisher(Publisher):
             self.status.set((self.batch_results or "批次已结束") + (" · 请检查日志" if code else ""))
 
     def close(self):
+        if self.dual_page is not None and self.dual_page.active:
+            self.dual_page.pause()
+            messagebox.showinfo("正在暂停多平台发布", "请等当前操作结束后再关闭。", parent=self.root)
+            return
         if self.tiktok_panel is not None and self.tiktok_panel.busy:
             self.tiktok_panel.pause()
             messagebox.showinfo("TikTok 正在暂停", "请等当前操作返回，再关闭发布助手。", parent=self.root)
