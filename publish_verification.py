@@ -14,6 +14,11 @@ def clean_caption(text):
     return str(text).replace('\r\n', '\n').replace('\xa0', ' ').replace('\u200b', '').strip()
 
 
+def caption_key(text):
+    # Studio renders line breaks before hashtags as spaces on the list page.
+    return ' '.join(clean_caption(text).split())
+
+
 def check_session(page):
     if page.is_closed():
         raise SubmissionUnconfirmed('发表页面已关闭，结果待核对；不能直接重传。')
@@ -48,6 +53,7 @@ def check_rejection(text):
 
 async def verify_management_record(page, caption, submitted_at, *, timeout_seconds=90, poll_interval=2, draft=False, short_title=None):
     caption = clean_caption(caption)
+    expected = caption_key(caption)
     if not caption:
         raise SubmissionUnconfirmed('简介为空，无法从后台准确核验这条作品，结果待核对。')
     await page.goto('https://channels.weixin.qq.com/platform/post/list', wait_until='domcontentloaded', timeout=30000)
@@ -69,7 +75,7 @@ async def verify_management_record(page, caption, submitted_at, *, timeout_secon
         check_rejection(await visible_feedback(page))
         # Check the newest unfiltered rows before applying search. A phrase
         # search may not be indexed yet even though the new work is present.
-        candidates = [row for row in await management_snapshot(page) if clean_caption(row['caption']) == caption]
+        candidates = [row for row in await management_snapshot(page) if caption_key(row['caption']) == expected]
         if len(candidates) > 1:
             raise SubmissionUnconfirmed('后台存在多条相同简介作品，无法唯一核验本次发表，请人工核对。')
         if len(candidates) == 1:

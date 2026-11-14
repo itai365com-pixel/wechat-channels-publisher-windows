@@ -104,14 +104,25 @@ def main(arguments=None):
             window = tk.Tk()
             window.withdraw()
             try:
-                app = BatchPublisher(window)
+                app = BatchPublisher(window, auto_preview=False)
                 window.update_idletasks()
                 assert window.title().startswith('视频号批量发布助手 v') and not app.busy
                 app.platform.set("dual")
                 app.switch_platform()
                 assert app.dual_page.winfo_manager() == "pack"
+                assert set(app.dual_page.enabled) == {"wechat", "tiktok", "youtube"}
                 assert all(not flag.get() for flag in app.dual_page.enabled.values())
                 assert app.dual_page.publish_button.instate(("disabled",))
+                app.dual_page.open_platform("youtube")
+                assert app.youtube_panel.winfo_manager() == "pack"
+                from youtube_batch_gui import VISIBILITY
+                assert app.youtube_panel.visibility.get() in VISIBILITY.values()
+                assert not app.use_embedded_browser.get()
+                app.platform.set("browser")
+                app.switch_platform(open_browser=False)
+                assert app.browser_page.winfo_manager() == "pack"
+                assert app.embedded_browser is None
+                assert (root/'webview2-host/EmbeddedBrowser.exe').is_file()
                 app.platform.set("wechat")
                 app.switch_platform()
                 code, log = app.execute_cli(['--help'], '安装自检')

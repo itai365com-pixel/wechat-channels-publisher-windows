@@ -7,10 +7,26 @@ from unittest.mock import AsyncMock, patch
 from channels_parallel import ParallelPublisher
 from daily_publish_limit import DailyPublishBudget
 from publisher_options import normalize_short_title
+from publish_verification import verify_management_record
 from video_channels_batch import filter_previously_completed, fingerprint, last_publish_batch, video_digest
 
 
 class PublishHistoryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_management_list_collapses_newline_before_hashtags(self):
+        from datetime import datetime
+        from types import SimpleNamespace
+
+        page = SimpleNamespace(url="https://channels.weixin.qq.com/platform/post/list",
+                               is_closed=lambda: False, goto=AsyncMock())
+        caption = "曼谷夜市 泰语点餐\n#泰语 #曼谷"
+        rows = [{"caption": "曼谷夜市 泰语点餐 #泰语 #曼谷",
+                 "row_text": "曼谷夜市 泰语点餐 #泰语 #曼谷\n2026年11月13日 11:49"}]
+        with patch("publish_verification.visible_feedback", new=AsyncMock(return_value="")), \
+             patch("publish_verification.management_snapshot", new=AsyncMock(return_value=rows)):
+            proof = await verify_management_record(page, caption, datetime(2026, 11, 13, 11, 49))
+        self.assertTrue(proof["verified"])
+        self.assertEqual(proof["matched_description"], caption)
+
     def setUp(self):
         folder = TemporaryDirectory()
         self.addCleanup(folder.cleanup)

@@ -28,6 +28,7 @@ class TikTokPanel:
         self.table = tk.StringVar(window)
         self.all_records = tk.BooleanVar(window)
         self.batch_count = tk.StringVar(window)
+        self.use_current_chrome = tk.BooleanVar(window)
         self.stop_requested = threading.Event()
         self.status = tk.StringVar(window, value="填写 TikTok 用户名并读取文案表。")
         self.events = queue.Queue()
@@ -38,7 +39,9 @@ class TikTokPanel:
         self.busy = False
         self.build()
         try:
-            self.account.set(json.loads(self.prefs.read_text(encoding="utf-8")).get("account", ""))
+            preferences = json.loads(self.prefs.read_text(encoding="utf-8"))
+            self.account.set(preferences.get("account", ""))
+            self.use_current_chrome.set(preferences.get("use_current_chrome") is True)
         except (OSError, ValueError, AttributeError):
             pass
         if self.account.get():
@@ -59,11 +62,13 @@ class TikTokPanel:
         ttk.Button(top, text="打开 TikTok Studio", command=self.open_studio).pack(side="right")
         self.login_button = ttk.Button(top, text="登录发布浏览器", command=self.login)
         self.login_button.pack(side="right", padx=(0, 8))
+        browser_mode = ttk.Checkbutton(top, text="使用当前 Chrome", variable=self.use_current_chrome)
+        browser_mode.pack(side="right", padx=(0, 8))
         ttk.Label(panel, text=f"每账号最近 60 分钟最多 {HOURLY_LIMIT} 条，曼谷自然日最多 {DAILY_LIMIT} 条。").pack(anchor="w", pady=(4, 8))
         inputs = ttk.Frame(panel)
         inputs.pack(fill="x")
         inputs.columnconfigure(1, weight=1)
-        self.inputs = []
+        self.inputs = [browser_mode]
         fields = (
             ("TikTok @用户名", self.account, "加载账号队列", self.load_account),
             ("视频文件夹", self.folder, "选择…", self.choose_folder),
@@ -164,7 +169,8 @@ class TikTokPanel:
         self.active = state["active"]
         self.loaded_paths = (state.get("folder", ""), state.get("table", ""))
         self.render()
-        write_local_json(self.prefs, {"account": self.store.username})
+        write_local_json(self.prefs, {"account": self.store.username,
+                                      "use_current_chrome": self.use_current_chrome.get()})
         self.status.set(f"@{self.store.username} · 当前队列 {len(self.active)} 条。排期留空时按开始处理的时间占用额度。")
 
     def import_table(self):
@@ -245,9 +251,10 @@ class TikTokPanel:
         self.start_studio(store, selected)
 
     def start_studio(self, store, selected):
+        use_current_chrome = self.use_current_chrome.get()
         self.stop_requested.clear()
         self.set_busy(True, can_pause=True)
-        self.status.set("正在打开 TikTok 发布浏览器…")
+        self.status.set("正在连接当前 Chrome…" if use_current_chrome else "正在打开 TikTok 发布浏览器…")
 
         def progress(message, *, refresh=False):
             self.events.put(("progress", message, store.read() if refresh else None))
@@ -261,7 +268,7 @@ class TikTokPanel:
 
             profile = self.data_dir / "profiles" / store.path.stem
             try:
-                with store.batch_lock(), open_studio(profile, store.username) as studio:
+                with store.batch_lock(), open_studio(profile, store.username, use_current_chrome=use_current_chrome) as studio:
                     if not studio.login(self.stop_requested, progress, wait_seconds=180):
                         message = "已暂停。" if self.stop_requested.is_set() else "尚未完成登录，请点击「登录发布浏览器」重试。"
                     elif selected is None:
@@ -269,7 +276,8 @@ class TikTokPanel:
                     else:
                         message = run_batch(store, selected, studio, self.stop_requested, progress)
             except TimeoutError:
-                message = "等待 TikTok Studio 超时。请检查网络、浏览器验证和队列中的待核对条目。"
+                message = ("连接或等待当前 Chrome 超时。请查看 Chrome 授权提示和队列状态。"
+                           if use_current_chrome else "等待 TikTok Studio 超时。请检查网络、浏览器验证和队列中的待核对条目。")
             except BrowserError:
                 message = "Chrome 窗口已关闭或 Studio 操作未完成。请检查浏览器及待核对条目。"
             except Exception as exc:

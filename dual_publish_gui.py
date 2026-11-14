@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 
-PLATFORMS = {"wechat": "视频号", "tiktok": "TikTok"}
+PLATFORMS = {"wechat": "视频号", "tiktok": "TikTok", "youtube": "YouTube"}
 
 
 class DualPublishPanel(ttk.Frame):
@@ -12,6 +12,7 @@ class DualPublishPanel(ttk.Frame):
         super().__init__(parent, padding=(24, 14))
         self.owner = owner
         self.tiktok = owner.tiktok_panel
+        self.youtube = owner.youtube_panel
         self.enabled = {name: tk.BooleanVar(self, value=False) for name in PLATFORMS}
         self.sources = {name: tk.StringVar(self) for name in PLATFORMS}
         self.states = {name: tk.StringVar(self) for name in PLATFORMS}
@@ -27,13 +28,13 @@ class DualPublishPanel(ttk.Frame):
 
     def make_ui(self):
         ttk.Label(self, text="多平台发布", style="Heading.TLabel").pack(anchor="w")
-        ttk.Label(self, text="使用视频号和 TikTok 页签中已经准备好的账号、文案与队列。",
+        ttk.Label(self, text="使用各平台页签中已经准备好的账号、文案与队列。",
                   style="Muted.TLabel").pack(anchor="w", pady=(4, 14))
         for name, label in PLATFORMS.items():
             card = ttk.LabelFrame(self, text=label, padding=(12, 9))
             card.pack(fill="x", pady=(0, 12))
             card.columnconfigure(1, weight=1)
-            check = ttk.Checkbutton(card, text=f"发布到{label}" if name == "wechat" else "发布到 TikTok",
+            check = ttk.Checkbutton(card, text=f"发布到{label}" if name == "wechat" else f"发布到 {label}",
                                     variable=self.enabled[name])
             check.grid(row=0, column=0, sticky="w", padx=(0, 12))
             self.checkboxes[name] = check
@@ -65,7 +66,8 @@ class DualPublishPanel(ttk.Frame):
     def refresh(self):
         owner = self.owner
         tiktok = self.tiktok
-        for name, panel in (("wechat", owner), ("tiktok", tiktok)):
+        youtube = self.youtube
+        for name, panel in (("wechat", owner), ("tiktok", tiktok), ("youtube", youtube)):
             if name in self.active and not panel.busy:
                 self.active.remove(name)
                 self.last_results[name] = panel.status.get()
@@ -73,6 +75,8 @@ class DualPublishPanel(ttk.Frame):
         self.sources["wechat"].set(f"{owner.account_display.get()} · {Path(owner.table_path.get()).name or '未选择文案表'}")
         self.sources["tiktok"].set(f"{'@' + tiktok.account.get().lstrip('@') if tiktok.account.get() else '未选择账号'}"
                                    f" · {Path(tiktok.table.get()).name or '未选择文案表'}")
+        self.sources["youtube"].set(f"{youtube.channel.get() or '未选择频道'}"
+                                    f" · {Path(youtube.table.get()).name or '未选择文案表'}")
         if owner.busy:
             wechat_state = owner.status.get()
         else:
@@ -91,7 +95,8 @@ class DualPublishPanel(ttk.Frame):
                 tiktok_state = f"本批 {len(selected)} 条待发布或待核对" if selected else "当前队列没有待处理的作品。"
             except ValueError as exc:
                 tiktok_state = str(exc)
-        for name, panel, message in (("wechat", owner, wechat_state), ("tiktok", tiktok, tiktok_state)):
+        for name, panel, message in (("wechat", owner, wechat_state), ("tiktok", tiktok, tiktok_state),
+                                     ("youtube", youtube, youtube.preview_state())):
             previous = self.last_results.get(name)
             self.states[name].set(f"{message} · 上次结果：{previous}" if previous and not panel.busy else message)
         self.update_buttons()
@@ -111,13 +116,20 @@ class DualPublishPanel(ttk.Frame):
                         details.append(f"视频号\n{plan[3]}")
                     else:
                         skipped.append("视频号没有待发布的作品。")
-                else:
+                elif name == "tiktok":
                     store, selected = self.tiktok.selected_batch()
                     if selected:
                         plans[name] = (self.tiktok.start_studio, (store, selected))
                         details.append(f"TikTok\n账号：@{store.username}\n本批：{len(selected)} 条，沿用已载入的文案和时间。")
                     else:
                         skipped.append("TikTok 没有待发布或待核对的作品。")
+                else:
+                    plan = self.youtube.prepare_batch()
+                    if plan[1]:
+                        plans[name] = (self.youtube.start_prepared_batch, (plan,))
+                        details.append(self.youtube.describe(plan))
+                    else:
+                        skipped.append("YouTube 没有待发布或待核对的作品。")
             except (OSError, ValueError, RuntimeError) as exc:
                 errors.append(f"{label}：{exc}")
         if errors or not plans:
@@ -145,6 +157,8 @@ class DualPublishPanel(ttk.Frame):
             self.owner.request_stop()
         if "tiktok" in self.active and self.tiktok.busy:
             self.tiktok.pause()
+        if "youtube" in self.active and self.youtube.busy:
+            self.youtube.pause()
         self.summary.set("已请求暂停，等待当前操作结束。")
 
     def poll(self):

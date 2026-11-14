@@ -157,8 +157,14 @@ class BatchPublisher(Publisher):
         self.preview_checks = OrderedDict()
         self.last_preview_context = None
         self.last_preview_selection = None
+        self.browser_page = None
+        self.official_account_page = None
+        self.embedded_browser = None
+        self.embedded_account = None
+        self.task_browser = None
+        self.use_embedded_browser = tk.BooleanVar(root, value=False)
         super().__init__(root)
-        root.title("视频号批量发布助手 v1.12.21")
+        root.title("视频号批量发布助手 v1.12.22")
         root.geometry(f"{min(1420, root.winfo_screenwidth() - 100)}x{min(960, root.winfo_screenheight() - 100)}")
         root.minsize(1060, 850)
         if auto_preview:
@@ -172,15 +178,20 @@ class BatchPublisher(Publisher):
         style = ttk.Style(self.root)
         style.configure("Platform.Toolbutton", padding=(13, 2), font=("Microsoft YaHei UI", 10))
         style.map("Platform.Toolbutton", background=[("selected", "#d6e9df"), ("active", "#e8f2ed")])
-        for value, label in (("wechat", "视频号"), ("tiktok", "TikTok"), ("dual", "多平台发布")):
+        for value, label in (("wechat", "视频号"), ("tiktok", "TikTok"), ("youtube", "YouTube"),
+                             ("dual", "多平台发布"), ("browser", "浏览器"), ("official", "微信公众号")):
             ttk.Radiobutton(switch, text=label, value=value, variable=self.platform,
                             style="Platform.Toolbutton", command=self.switch_platform).pack(side="left", padx=(0, 6))
+        self.browser_mode = ttk.Checkbutton(switch, text="使用内嵌浏览器发布（视频号）",
+                                            variable=self.use_embedded_browser)
+        self.browser_mode.pack(side="left", padx=(12, 0))
         self.platform_pages = ttk.Frame(self.root)
         self.platform_pages.pack(fill="both", expand=True)
         self.wechat_page = ttk.Frame(self.platform_pages)
         self.wechat_page.pack(fill="both", expand=True)
         self.tiktok_page = None
         self.tiktok_panel = None
+        self.youtube_panel = None
         self.dual_page = None
         panel = scrollable_panel(self.wechat_page, (26, 12))
         panel.columnconfigure(1, weight=1)
@@ -324,12 +335,24 @@ class BatchPublisher(Publisher):
             self.tiktok_panel = TikTokPanel(self.tiktok_page)
         return self.tiktok_page
 
-    def switch_platform(self):
+    def switch_platform(self, *, open_browser=True):
         target = self.platform.get()
         if target == "tiktok":
             page = self.ensure_tiktok_page()
+        elif target == "youtube":
+            page = self.ensure_youtube_page()
+        elif target == "browser":
+            page = self.ensure_browser_page()
+        elif target == "official":
+            if self.official_account_page is None:
+                from official_account_gui import OfficialAccountPanel
+
+                self.official_account_page = OfficialAccountPanel(
+                    self.platform_pages, ROOT / ".local/gui/official-account/drafts")
+            page = self.official_account_page
         elif target == "dual":
             self.ensure_tiktok_page()
+            self.ensure_youtube_page()
             if self.dual_page is None:
                 from dual_publish_gui import DualPublishPanel
 
@@ -342,6 +365,80 @@ class BatchPublisher(Publisher):
             if current is not page:
                 current.pack_forget()
         page.pack(fill="both", expand=True)
+        if target == "browser" and open_browser and not self.busy:
+            try:
+                self.browser_for_account()
+            except (OSError, RuntimeError) as exc:
+                self.status.set(f"无法打开内嵌浏览器：{exc}")
+
+    def ensure_browser_page(self):
+        if self.browser_page is None:
+            self.browser_page = ttk.Frame(self.platform_pages, padding=(24, 12))
+            bar = ttk.Frame(self.browser_page)
+            bar.pack(fill="x", pady=(0, 8))
+            ttk.Label(bar, text="视频号内嵌浏览器有独立登录状态。首次使用请为当前账号扫码。").pack(side="left")
+            ttk.Label(bar, textvariable=self.account_display).pack(side="left", padx=12)
+            self.browser_login = ttk.Button(bar, text="打开视频号并扫码", command=self.open_browser_login)
+            self.browser_login.pack(side="right")
+            if self.busy:
+                self.browser_login.state(["disabled"])
+            ttk.Label(self.browser_page, textvariable=self.status, style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
+            self.browser_host = tk.Frame(self.browser_page, bg="white")
+            self.browser_host.pack(fill="both", expand=True)
+        return self.browser_page
+
+    def refresh_account_status(self):
+        super().refresh_account_status()
+        if self.embedded_browser and not self.busy and self.account.get() != self.embedded_account:
+            self.embedded_browser.close()
+            self.embedded_browser = None
+            self.embedded_account = None
+
+    def open_browser_login(self):
+        if not self.busy:
+            self.start(["login"], "内嵌扫码登录")
+
+    def browser_for_account(self):
+        from embedded_browser import EmbeddedBrowser
+
+        self.platform.set("browser")
+        self.switch_platform(open_browser=False)
+        self.browser_host.update_idletasks()
+        account = self.account.get()
+        if self.embedded_browser and (self.embedded_account != account or self.embedded_browser.process.poll() is not None):
+            self.embedded_browser.close()
+            self.embedded_browser = None
+        if self.embedded_browser is None:
+            self.embedded_browser = EmbeddedBrowser(ROOT, account, self.browser_host.winfo_id())
+            self.embedded_account = account
+        return self.embedded_browser
+
+    def start(self, arguments, action):
+        if self.busy:
+            return False
+        self.task_browser = None
+        use_embedded = action == "内嵌扫码登录" or (self.use_embedded_browser.get() and action in {
+            "检查登录", "扫码登录", "批量发布", "批量保存草稿", "批量定时发表",
+        })
+        if use_embedded:
+            try:
+                self.task_browser = self.browser_for_account()
+            except (OSError, RuntimeError) as exc:
+                messagebox.showerror("无法打开内嵌浏览器", str(exc), parent=self.root)
+                return False
+        started = super().start(arguments, action)
+        if started:
+            self.browser_mode.state(["disabled"])
+            if self.browser_page is not None:
+                self.browser_login.state(["disabled"])
+        return started
+
+    def ensure_youtube_page(self):
+        if self.youtube_panel is None:
+            from youtube_batch_gui import YouTubePanel
+
+            self.youtube_panel = YouTubePanel(self.platform_pages, ROOT / ".local/gui/youtube")
+        return self.youtube_panel
 
     def remember_paths(self):
         try:
@@ -562,7 +659,7 @@ class BatchPublisher(Publisher):
     def prepare_batch(self, draft=False, *, continue_loaded=False):
         kind = self.publishing_preview(allow_resume=continue_loaded)
         account = self.account.get()
-        if not (ROOT / "cookies" / f"tencent_{account}.json").is_file():
+        if not self.use_embedded_browser.get() and not (ROOT / "cookies" / f"tencent_{account}.json").is_file():
             raise ValueError("请先在视频号页扫码登录。")
         if continue_loaded and kind == "resume":
             from channels_parallel import ParallelPublisher
@@ -574,6 +671,7 @@ class BatchPublisher(Publisher):
             action = "批量定时发表" if record["options"]["scheduled"] else "批量发布"
             question = f"账号：{self.account_display.get()}\n继续队列：{len(jobs)} 条待处理\n"
             question += options_summary(record["options"], [row.get("schedule") for row in jobs])
+            question += self.browser_confirmation()
             return action, record, path, question, len(jobs)
 
         issues, bad = [], []
@@ -605,6 +703,7 @@ class BatchPublisher(Publisher):
         names = "、".join(Path(row["file"]).stem for row in jobs)
         question = f"账号：{self.account_display.get()}\n数量：{len(jobs)} 条\n视频：{names}\n文案来源：{Path(record['source']).name} / {record['sheet']}\n\n"
         question += options_summary(settings, schedules)
+        question += self.browser_confirmation()
         if skipped:
             question += f"\n已核验的 {len(skipped)} 条会跳过。"
         if not draft and jobs:
@@ -612,6 +711,9 @@ class BatchPublisher(Publisher):
             if schedules[0]:
                 question += "\n等待后如已来不及提交定时发表，队列会暂停。"
         return action, record, None, question, len(jobs)
+
+    def browser_confirmation(self):
+        return "\n浏览器：" + ("内嵌浏览器" if self.use_embedded_browser.get() else "外部浏览器")
 
     def start_prepared_batch(self, plan):
         action, record, path, _, count = plan
@@ -742,6 +844,7 @@ class BatchPublisher(Publisher):
                 display_name = self.account_names.get(record["account"], record["account"])
                 question = f'账号：{display_name}\n已完成 {completed} 条，将跳过。\n继续未完成 {len(jobs)} 条。\n\n' + options_summary(record['options'])
                 question += '\n\n最多使用 2 个标签上传，按额度和队列中保存的时间继续。确认继续？'
+                question += self.browser_confirmation()
                 if not messagebox.askyesno('继续已有队列', question, parent=self.root):
                     return
             self.cancel_preview()
@@ -789,6 +892,20 @@ class BatchPublisher(Publisher):
             messagebox.showerror('无法继续队列', str(exc), parent=self.root)
 
     def run_cli(self, arguments, action):
+        if self.task_browser and action in {"内嵌扫码登录", "扫码登录", "检查登录"}:
+            async def verify():
+                cookie = ROOT / "cookies" / f"tencent_{self.embedded_account}.json"
+                async with self.task_browser.pages() as pages:
+                    await self.task_browser.verify_channels(pages[0], cookie, login=action != "检查登录")
+            code = 1
+            try:
+                asyncio.run(verify())
+                code = 0
+                self.events.put(("log", "内嵌浏览器登录已核验。\n"))
+            except Exception as exc:
+                self.events.put(("log", f"内嵌浏览器登录失败：{exc}\n"))
+            self.events.put(("done", (code, None, action)))
+            return
         if action not in {"批量发布", "批量保存草稿", "批量定时发表"}:
             return super().run_cli(arguments, action)
         return self.run_parallel(action)
@@ -801,12 +918,15 @@ class BatchPublisher(Publisher):
     def run_parallel(self, action):
         from channels_parallel import ParallelPublisher
         code = 1
+        error = ""
         try:
             runner = ParallelPublisher(self.manifest_path, record=self.manifest,
                                        event=lambda kind, payload: self.events.put((kind, payload)),
-                                       stop=self.stop_requested, tabs=self.manifest.get('parallel_tabs', 2))
+                                       stop=self.stop_requested, tabs=self.manifest.get('parallel_tabs', 2),
+                                       embedded_browser=self.task_browser)
             code = asyncio.run(runner.run(acquire_lock=False))
         except Exception as exc:
+            error = str(exc)
             self.events.put(('log', f'并行批次停止：{exc}\n'))
         finally:
             completed = sum(row.get('status') in FINISHED_ITEMS for row in self.manifest['items'])
@@ -820,6 +940,8 @@ class BatchPublisher(Publisher):
             elif failed:
                 cause = next((row for row in failed if '安全停止' not in row.get('error', '')), failed[0])
                 self.batch_results += f' · {Path(cause["file"]).name} 提交前失败：{cause.get("error", "请检查日志")}'
+            elif error:
+                self.batch_results += f' · {error}'
             self.events.put(('done', (code, None, action)))
 
     def on_event(self, kind, payload):
@@ -838,6 +960,12 @@ class BatchPublisher(Publisher):
 
     def task_finished(self, code, action):
         super().task_finished(code, action)
+        self.browser_mode.state(["!disabled"])
+        if self.browser_page is not None:
+            self.browser_login.state(["!disabled"])
+        if self.task_browser and action in {"扫码登录", "内嵌扫码登录", "检查登录"} and not code:
+            self.status.set("内嵌浏览器登录已核验")
+            self.login_status.set("内嵌浏览器登录有效 · 可以发布视频")
         self.sheet_box.configure(state="readonly")
         self.series_box.configure(state='readonly')
         if action in {"批量发布", "批量保存草稿", "批量定时发表"}:
@@ -846,6 +974,9 @@ class BatchPublisher(Publisher):
             self.status.set((self.batch_results or "批次已结束") + (" · 请检查日志" if code else ""))
 
     def close(self):
+        if self.official_account_page is not None and self.official_account_page.syncing:
+            messagebox.showinfo("正在同步公众号草稿", "请等草稿同步结束后再关闭。", parent=self.root)
+            return
         if self.dual_page is not None and self.dual_page.active:
             self.dual_page.pause()
             messagebox.showinfo("正在暂停多平台发布", "请等当前操作结束后再关闭。", parent=self.root)
@@ -854,8 +985,14 @@ class BatchPublisher(Publisher):
             self.tiktok_panel.pause()
             messagebox.showinfo("TikTok 正在暂停", "请等当前操作返回，再关闭发布助手。", parent=self.root)
             return
+        if self.youtube_panel is not None and self.youtube_panel.busy:
+            self.youtube_panel.pause()
+            messagebox.showinfo("YouTube 正在暂停", "请等当前操作返回，再关闭发布助手。", parent=self.root)
+            return
         if not self.busy:
             self.cancel_preview()
+            if self.embedded_browser:
+                self.embedded_browser.close()
         super().close()
 
     def current_config(self):

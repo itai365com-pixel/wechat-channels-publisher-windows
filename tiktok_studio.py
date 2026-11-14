@@ -29,12 +29,27 @@ class StudioPost:
 
 
 @contextmanager
-def open_studio(profile, username):
+def open_studio(profile, username, *, use_current_chrome=False):
     from playwright.sync_api import sync_playwright
 
-    profile = Path(profile)
-    profile.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as browser:
+        if use_current_chrome:
+            from chrome_session import current_chrome_endpoint
+
+            connected = browser.chromium.connect_over_cdp(current_chrome_endpoint(), timeout=45000, is_local=True)
+            if len(connected.contexts) != 1:
+                raise RuntimeError("无法识别当前 Chrome 的普通浏览上下文。")
+            context = connected.contexts[0]
+            studio = Studio(context, history=context.new_page(), username=username)
+            try:
+                yield studio
+            finally:
+                for page in (studio.editor, studio.history):
+                    if page is not None and not page.is_closed():
+                        page.close()
+            return
+        profile = Path(profile)
+        profile.mkdir(parents=True, exist_ok=True)
         context = browser.chromium.launch_persistent_context(
             profile, channel="chrome", headless=False, timezone_id="Asia/Bangkok", timeout=20000
         )
@@ -46,8 +61,8 @@ def open_studio(profile, username):
 
 
 class Studio:
-    def __init__(self, context, username):
-        self.history = context.pages[0] if context.pages else context.new_page()
+    def __init__(self, context, username, *, history=None):
+        self.history = history or (context.pages[0] if context.pages else context.new_page())
         self.editor = None
         self.context = context
         self.username = username

@@ -18,6 +18,8 @@ BUNDLE_FILES = (
     'desktop_launcher.pyw', 'installed_self_test.py', 'conf.py', 'LICENSE',
     'assets/publisher-mark.ico', 'channels_account_names.py', 'batch_preview.py', 'tiktok_queue.py', 'tiktok_gui.py',
     'tiktok_batch.py', 'tiktok_studio.py', 'dual_publish_gui.py',
+    'youtube_batch.py', 'youtube_batch_gui.py', 'youtube_batch_studio.py', 'chrome_session.py', 'embedded_browser.py',
+    'official_account_writer.py', 'official_account_gui.py', 'official_account_drafts.py', 'official_account_images.py',
 )
 SOURCE_PACKAGES = ('sau_commands', 'uploader', 'utils', 'myUtils')
 
@@ -38,6 +40,9 @@ def prepare(stage, browsers):
         target = stage/name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT/name, target)
+    subprocess.run(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                    str(ROOT/'packaging/windows/build_webview2_host.ps1'),
+                    '-OutputDirectory', str(stage/'webview2-host')], check=True)
     for package in SOURCE_PACKAGES:
         for source in (ROOT/package).rglob('*.py'):
             if '__pycache__' in source.parts or 'node_modules' in source.parts:
@@ -77,14 +82,16 @@ def prepare(stage, browsers):
         if not path.is_file(): continue
         relative = path.relative_to(stage).as_posix()
         if relative.startswith(('cookies/', 'logs/', '.local/gui/batches/', '.local/gui/daily-quota/',
-                                '.local/gui/first-comments/', '.local/gui/tiktok/', '.local/gui/batch-paths.json', '.local/gui/reports/', '.local/gui/diagnostics/', '.local/gui/completions/', '.local/gui/history-backups/')):
+                                '.local/gui/first-comments/', '.local/gui/tiktok/', '.local/gui/youtube/', '.local/gui/webview2/',
+                                '.local/gui/official-account/',
+                                '.local/gui/batch-paths.json', '.local/gui/reports/', '.local/gui/diagnostics/', '.local/gui/completions/', '.local/gui/history-backups/')):
             raise ValueError(f'Private state must never be packaged: {relative}')
         if '__editable__' in relative or path.suffix.lower() in ('.mp4','.xlsx','.log'):
             raise ValueError(f'Unexpected private/development file: {relative}')
         with path.open('rb') as stream:
             digest = hashlib.file_digest(stream,'sha256').hexdigest()
         entries.append({'path':relative,'bytes':path.stat().st_size,'sha256':digest})
-    manifest = {'version':'1.12.21','architecture':'windows-x64','private_state_included':False,
+    manifest = {'version':'1.12.22','architecture':'windows-x64','private_state_included':False,
                 'files':entries, 'total_bytes':sum(entry['bytes'] for entry in entries)}
     (stage/'bundle-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'stage':str(stage),'files':len(entries),'bytes':manifest['total_bytes']},ensure_ascii=False),flush=True)

@@ -118,3 +118,19 @@ class MultiPlatformTests(TestCase):
         self.assertEqual(plan[2], path)
         self.assertEqual(plan[1]["next_round_at"], "2030-11-12T21:00:00+07:00")
 
+    def test_embedded_browser_is_opt_in_for_wechat_batches(self):
+        with (patch("video_channels_gui.Publisher.start", return_value=False),
+              patch.object(self.app, "browser_for_account") as open_browser):
+            self.app.start([], "批量发布")
+            open_browser.assert_not_called()
+            self.assertIsNone(self.app.task_browser)
+
+            self.app.use_embedded_browser.set(True)
+            self.app.start([], "批量发布")
+            open_browser.assert_called_once()
+            self.assertIs(self.app.task_browser, open_browser.return_value)
+
+            self.app.use_embedded_browser.set(False)
+            self.app.start([], "批量发布")
+            self.assertIsNone(self.app.task_browser)
+

@@ -160,7 +160,8 @@ async def verify_video_file(page, path):
 
 class ParallelPublisher:
     def __init__(self, manifest_path, *, record=None, event=None, stop=None, tabs=MAX_TABS,
-                 cover_timeout=1800, limit=None, debug_port=None, budget=None, sleep=asyncio.sleep):
+                 cover_timeout=1800, limit=None, debug_port=None, budget=None, sleep=asyncio.sleep,
+                 embedded_browser=None):
         self.path = Path(manifest_path).resolve()
         self.record = record if record is not None else json.loads(self.path.read_text(encoding='utf-8'))
         self.event = event or (lambda kind, payload: print(payload, flush=True))
@@ -169,6 +170,7 @@ class ParallelPublisher:
             raise ValueError('标签数量和任务上限必须为正数')
         self.tabs, self.cover_timeout, self.limit = min(tabs, MAX_TABS), cover_timeout, limit
         self.debug_port = debug_port
+        self.embedded_browser = embedded_browser
         self.root = Path(BASE_DIR)
         self.logs = self.root / '.local/gui/logs'
         self.logs.mkdir(parents=True, exist_ok=True)
@@ -302,6 +304,8 @@ class ParallelPublisher:
     async def publish(self, row, prepared, slot):
         app, page = prepared
         with logger.contextualize(parallel_item=row['fingerprint']):
+            if self.embedded_browser:
+                await self.embedded_browser.assert_channels_account(page, self.embedded_username)
             row['phase'] = 'finalizing'
             self.save()
             self.emit(row, f'标签{slot+1}：核对设置并发表')
@@ -322,6 +326,8 @@ class ParallelPublisher:
                 raise RuntimeError('视频文件与标签任务不一致，尚未点击发表')
             row['before_submit_text'] = '\n'.join(await page.locator('body').all_inner_texts())
             self.emit(row, '正在提交并核验后台记录')
+            if self.embedded_browser:
+                await self.embedded_browser.assert_channels_account(page, self.embedded_username)
             async def reserved(token):
                 row.update(phase='submit_started', submit_clicked_at=datetime.now().astimezone().isoformat())
                 if token:
@@ -371,8 +377,11 @@ class ParallelPublisher:
         cover_timeout = row.get('phase') == 'waiting_cover' and '封面在等待时间内未生成完成' in str(exc)
         if cover_timeout:
             slot = row['slot'] - 1
-            await self.pages[slot].close()
-            self.pages[slot] = await self.context.new_page()
+            if self.embedded_browser:
+                await self.pages[slot].goto('about:blank')
+            else:
+                await self.pages[slot].close()
+                self.pages[slot] = await self.context.new_page()
         return uncertain or not cover_timeout
 
     async def cancelled(self, row):
@@ -420,13 +429,22 @@ class ParallelPublisher:
 
     async def run_round(self, jobs):
         cookie = self.root / 'cookies' / f'tencent_{self.record["account"]}.json'
-        if not cookie.is_file() or not await cookie_auth(str(cookie)):
+        if not self.embedded_browser and (not cookie.is_file() or not await cookie_auth(str(cookie))):
             raise RuntimeError('视频号登录已失效，请重新扫码')
         if self.stop.is_set():
             return
         self.started.clear()
         self.limit_reached = False
         self.scheduler = ReadyFirstScheduler(self.tabs, self.stop)
+        if self.embedded_browser:
+            async with self.embedded_browser.pages() as pages:
+                self.embedded_username = await self.embedded_browser.verify_channels(pages[0], cookie)
+                if self.stop.is_set():
+                    return
+                self.pages = pages[:min(self.tabs, len(jobs))]
+                await self.scheduler.run(jobs, self.prepare, self.publish, self.failure, self.cancelled,
+                                         last=set(self.record.get('publish_last', [])))
+            return
         async with async_playwright() as p:
             launch = _build_launch_kwargs(headless=False)
             launch['args'] = [*launch.get('args', []), '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows']

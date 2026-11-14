@@ -2,21 +2,21 @@
 
 **WeChat Channels & TikTok Batch Publisher for Windows**
 
-这是一款免费开源的 **微信视频号批量发布工具**，适用于 Windows 10 / 11。支持 Excel / CSV 文案导入、批量上传、定时发表、断点续发、发布去重和近 7 天播放 Top10 分析，也支持通过 TikTok Studio 批量发布。
+这是一款免费开源的 **微信视频号批量发布工具**，适用于 Windows 10 / 11。支持 Excel / CSV 文案导入、批量上传、定时发表、断点续发、发布去重和近 7 天播放 Top10 分析。v1.12.22 源码也支持 TikTok、YouTube 批量发布和微信公众号 AI 图文草稿。
 
 <a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.21/wechat-channels-publisher-windows-v1.12.21-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载微信视频号和 TikTok 批量发布工具 Windows x64 安装包"></a>
 
 [免费下载 v1.12.21 Windows 安装包](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.21/wechat-channels-publisher-windows-v1.12.21-x64.exe) · [版本说明与 SHA256 校验](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.12.21) · [中文更新日志](CHANGELOG.md)
 
-[项目主页](https://itai365com-pixel.github.io/wechat-channels-publisher-windows/) · [视频号使用指南](#如何批量发布视频号视频) · [TikTok 使用指南](#tiktok-批量发布) · [多平台发布](#从一个页面启动多平台发布)
+[项目主页](https://itai365com-pixel.github.io/wechat-channels-publisher-windows/) · [视频号使用指南](#如何批量发布视频号视频) · [TikTok 使用指南](#tiktok-批量发布) · [YouTube 使用指南](#youtube-批量发布) · [多平台发布](#从一个页面启动多平台发布) · [公众号 AI 图文草稿](#微信公众号-ai-图文草稿)
 
-**多平台发布：** 在「视频号」和「TikTok」页分别配置账号、素材、文案和发布时间。切到「多平台发布」，勾选要发的平台，点击「发布到勾选的平台」。勾选两个平台时，两边按各自设置并行发布。
+在各平台页分别配置账号、素材、文案和发布设置。切到「多平台发布」，勾选要发的平台并启动，队列按各自设置并行发布。
 
 <a href="docs/screenshots/multiplatform-v1.12.21.png"><img src="docs/screenshots/multiplatform-v1.12.21.png" width="59%" alt="v1.12.21 多平台发布页，勾选视频号和 TikTok 后启动已载入的示例队列"></a> <a href="docs/screenshots/top10-analysis.png"><img src="docs/screenshots/top10-analysis.png" width="39%" alt="视频号近 7 天播放 Top10 分析报告，显示示例播放数据与选题建议"></a>
 
 左图为多平台发布，右图为视频号 Top10 分析。截图均使用示例数据，点击可查看原图。
 
-离线安装包内置 Python 和视频号使用的 Chromium。使用 TikTok 发布需安装 Google Chrome。登录、发布和读取统计时需要联网。
+离线安装包内置 Python 和视频号使用的 Chromium。TikTok 和 YouTube 发布需要 Google Chrome。登录、发布和读取统计时需要联网。
 
 ## 适用场景
 
@@ -83,15 +83,39 @@ lesson002.mp4,คำจีนวันนี้: 谢谢 แปลว่า ข�
 - 助手默认每个 TikTok 账号最近 60 分钟最多提交 2 条，每个曼谷自然日最多 10 条。达到额度后等待下一时段。
 - 队列按账号和视频内容识别已登记的作品。提交结果未知时会先核对后台再决定下一步。也可手动在 Studio 排期，核对后在队列里登记。
 
+## YouTube 批量发布
+
+从 v1.12.22 起，切换到「YouTube」，点击「登录发布浏览器」，在打开的 Chrome 登录 Google 并进入要发布的频道。助手会读取频道 ID，也可以预先填入指定频道的 ID。
+
+TikTok 和 YouTube 页可以勾选「使用当前 Chrome」，复用已登录的浏览器会话。先在 Chrome 144 或以上版本打开 `chrome://inspect/#remote-debugging`，启用远程调试。助手连接时，在 Chrome 弹窗允许连接，并核对工具识别到的账号或频道。
+
+1. 选择视频文件夹和文案表，支持 XLSX、CSV、TSV。可以点「保存示例表」获取模板。
+2. 表格填写「文件名」「标题」，也可填写「简介」「标签」。简介中的 `#话题` 原样保留，标签列使用逗号分隔。
+3. 读取表格后核对预览、公开范围和儿童受众。默认公开范围为私享。点击「开始批量发布」，或到「多平台发布」勾选 YouTube。
+4. 助手在 Studio 核对作品、文案和公开范围后才标记已核验。同频道已核验的相同文件自动跳过。若出现待核对记录，可选中该行打开 Studio 查看，再次启动时先核对已有作品。
+
 ## 从一个页面启动多平台发布
 
-v1.12.21 的「多平台发布」直接使用各平台页已经准备好的队列：
+「多平台发布」直接使用各平台页已经准备好的队列。
 
 1. 在「视频号」页选账号、素材和文案，更新预览并核对发布设置。
 2. 在「TikTok」页加载账号队列或导入表格，按需设置本批条数。
-3. 切到「多平台发布」，核对两边的账号与队列，勾选需要发布的平台并启动。
+3. 在「YouTube」页登录频道、读取文案表并选好公开范围和儿童受众。
+4. 切到「多平台发布」，核对账号与队列，勾选要发布的平台并启动。
 
-两个平台可以使用不同的素材、文案和发布时间。勾选两边时，两条队列并行运行，各自遵守原有额度、核验和去重规则。
+各平台可以使用自己的素材和文案。勾选多个平台时，各队列并行运行，独立核验和去重。
+
+### 在工具内使用视频号后台
+
+在顶部打开「浏览器」，点击「打开视频号并扫码」。登录后勾选「使用内嵌浏览器发布（视频号）」，批量发布、定时发表和批量保存草稿会在工具内运行。复选框默认关闭，取消勾选即可使用外部浏览器。内嵌模式使用独立的会话，需要安装 Microsoft Edge WebView2 Runtime。TikTok 和 YouTube 使用各自页面的浏览器设置。
+
+「网页浏览」默认打开 [词映 AI 导航](https://ai.tugei.com/)。可输入其他网址，按回车或点「前往」。视频号的工作标签单独保留给扫码和发布。
+
+## 微信公众号 AI 图文草稿
+
+1. 打开「微信公众号」，填入 OpenAI API Key，选择写作模型，输入选题并生成可编辑的草稿。
+2. 在「AI 正文配图」里选择段落和配图模型，生成图片并预览。
+3. 在「公众号同步设置」填写 AppID、AppSecret 和该账号的永久封面素材 ID。点击「同步当前草稿」上传正文图片、保存图文草稿并回读核对。该入口只写入草稿箱。
 
 ## 常见问题
 
