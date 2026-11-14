@@ -2,11 +2,11 @@
 
 **WeChat Channels & TikTok Batch Publisher for Windows**
 
-这是一款免费开源的 **微信视频号批量发布工具**，适用于 Windows 10 / 11。支持 Excel / CSV 文案导入、批量上传、定时发表、断点续发、发布去重和近 7 天播放 Top10 分析。v1.12.22 源码也支持 TikTok、YouTube 批量发布和微信公众号 AI 图文草稿。
+这是一款免费开源的 **微信视频号批量发布工具**，适用于 Windows 10 / 11。支持 Excel / CSV 文案导入、批量上传、定时发表、断点续发、发布去重和近 7 天播放 Top10 分析，也支持 TikTok、YouTube 批量发布和微信公众号 AI 图文草稿。
 
-<a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.21/wechat-channels-publisher-windows-v1.12.21-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载微信视频号和 TikTok 批量发布工具 Windows x64 安装包"></a>
+<a href="https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.22/wechat-channels-publisher-windows-v1.12.22-x64.exe"><img src="docs/screenshots/download-windows.png" width="261" alt="下载 v1.12.22 Windows x64 安装包"></a>
 
-[免费下载 v1.12.21 Windows 安装包](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.21/wechat-channels-publisher-windows-v1.12.21-x64.exe) · [版本说明与 SHA256 校验](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.12.21) · [中文更新日志](CHANGELOG.md)
+[免费下载 v1.12.22 Windows 安装包](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/download/v1.12.22/wechat-channels-publisher-windows-v1.12.22-x64.exe) · [版本说明与 SHA256 校验](https://github.com/itai365com-pixel/wechat-channels-publisher-windows/releases/tag/v1.12.22) · [中文更新日志](CHANGELOG.md)
 
 [项目主页](https://itai365com-pixel.github.io/wechat-channels-publisher-windows/) · [视频号使用指南](#如何批量发布视频号视频) · [TikTok 使用指南](#tiktok-批量发布) · [YouTube 使用指南](#youtube-批量发布) · [多平台发布](#从一个页面启动多平台发布) · [公众号 AI 图文草稿](#微信公众号-ai-图文草稿)
 
