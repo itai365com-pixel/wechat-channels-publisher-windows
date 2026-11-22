@@ -16,13 +16,13 @@ from publisher_preferences import write_local_json
 
 HOURLY_LIMIT = 2
 DAILY_LIMIT = 10
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm"}
-HEADERS = ("视频文件名", "泰文文案", "话题", "曼谷发布时间")
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"}
+HEADERS = ("视频文件名", "TikTok 文案", "话题", "曼谷发布时间")
 COLUMN_NAMES = (
-    (HEADERS[0], "视频文件", "文件名"),
-    (HEADERS[1], "tiktok 文案", "tiktok文案"),
-    (HEADERS[2], "标签"),
-    (HEADERS[3],),
+    (HEADERS[0], "视频文件", "文件名", "视频", "视频名称", "视频编号", "文件编号", "filename", "video filename", "video file name", "file", "video"),
+    (HEADERS[1], "tiktok文案", "文案", "文案内容", "视频文案", "中文文案", "中文内容", "中文简介", "中文标题", "泰文内容", "泰文文案", "caption", "description", "content", "thai caption", "thai copy", "chinese caption", "chinese copy"),
+    (HEADERS[2], "标签", "话题标签", "主题标签", "hashtags", "hash tags", "hashtag", "tag"),
+    (HEADERS[3], "发布时间", "排期时间", "曼谷时间", "发布时间（曼谷）", "schedule", "scheduled at"),
 )
 
 
@@ -49,7 +49,7 @@ def file_signature(path):
     return [stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
 
 
-def _source_rows(table):
+def _source_rows(table, *, allow_no_filename=False):
     matches = []
     for sheet, rows in read_tables(table).items():
         filled = [(n, row) for n, row in rows if any(str(cell).strip() for cell in row)]
@@ -57,7 +57,7 @@ def _source_rows(table):
             continue
         header = [" ".join(str(cell).split()).casefold() for cell in filled[0][1]]
         positions = [[i for i, name in enumerate(header) if name in aliases] for aliases in COLUMN_NAMES]
-        if not positions[0] or not positions[1]:
+        if (not positions[0] and not allow_no_filename) or not positions[1]:
             continue
         for label, indexes in zip(HEADERS, positions):
             if len(indexes) > 1:
@@ -65,7 +65,9 @@ def _source_rows(table):
         columns = [indexes[0] if indexes else None for indexes in positions]
         matches.append((sheet, columns, filled[1:]))
     if not matches:
-        raise ValueError("表格需要「视频文件名」或「视频文件」列，以及「泰文文案」或「TikTok 文案」列。话题和曼谷发布时间可省略。")
+        if allow_no_filename:
+            raise ValueError("表格需要“文案”或“TikTok 文案”列。")
+        raise ValueError("表格需要「视频文件名」或「视频文件」列，以及「文案」或「TikTok 文案」列。话题和曼谷发布时间可省略。")
     if len(matches) > 1:
         raise ValueError("检测到多个 TikTok 文案工作表，请将要读取的工作表另存为单独文件。")
     return matches[0]
@@ -82,35 +84,74 @@ def _parse_schedule(value, row_number):
         raise ValueError(f"第 {row_number} 行曼谷发布时间请用文本格式 YYYY-MM-DD HH:MM，或留空。") from exc
 
 
-def read_tiktok_items(folder, table):
+def read_tiktok_items(folder, table, first_video=""):
     folder, table = Path(folder), Path(table)
     if not folder.is_dir() or not table.is_file():
         raise ValueError("请选择有效的视频文件夹和文案表格。")
     table_signature = file_signature(table)
-    sheet, columns, rows = _source_rows(table)
+    sheet, columns, rows = _source_rows(table, allow_no_filename=bool(first_video))
     if not rows:
         raise ValueError("文案表格没有视频条目。")
     videos = {}
+    ordered_videos = []
     for path in folder.iterdir():
         if path.suffix.lower() in VIDEO_EXTENSIONS and path.is_file():
             videos.setdefault(path.name.casefold(), []).append(path)
+            ordered_videos.append(path)
     if not videos:
-        raise ValueError("目录中没有 MP4、MOV 或 WebM 视频。")
+        raise ValueError("目录中没有 MP4、MOV、WebM、MKV、AVI 或 M4V 视频。")
+
+    def natural(path):
+        return tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
+                     for part in re.split(r"(\d+)", path.name))
+
+    ordered_videos.sort(key=natural)
+    start_index = 0
+    if first_video:
+        selected = Path(first_video).resolve()
+        positions = {path.resolve(): index for index, path in enumerate(ordered_videos)}
+        if selected not in positions:
+            raise ValueError("选择的首个视频不在当前视频文件夹中，请重新选择。")
+        start_index = positions[selected]
+        if len(ordered_videos) - start_index < len(rows):
+            raise ValueError(f"从所选视频开始只有 {len(ordered_videos) - start_index} 个视频，但文案表有 {len(rows)} 行。")
+
+    by_stem = {}
+    by_number = {}
+    for path in ordered_videos:
+        by_stem.setdefault(path.stem.casefold(), []).append(path)
+        numbered = re.fullmatch(r"(.*?)(\d+)", path.stem)
+        if numbered:
+            by_number.setdefault((numbered.group(1).casefold(), int(numbered.group(2))), []).append(path)
 
     import cv2
 
     checked = OrderedDict()
     items = {}
-    for number, values in rows:
+    for row_index, (number, values) in enumerate(rows):
         name, text, tags, schedule = (
             str(values[i]).strip() if i is not None and i < len(values) else "" for i in columns
         )
-        if not name or not text:
-            raise ValueError(f"第 {number} 行缺少视频文件名或泰文文案。")
-        candidates = videos.get(name.casefold(), [])
-        if len(candidates) != 1:
-            raise ValueError(f"第 {number} 行无法在目录中唯一匹配「{name}」。请填写完整文件名。")
-        path = candidates[0].resolve()
+        if (not name and not first_video) or not text:
+            missing = "文案" if not text else "视频文件名"
+            raise ValueError(f"第 {number} 行缺少{missing}。")
+        if first_video:
+            path = ordered_videos[start_index + row_index].resolve()
+        else:
+            basename = name.replace("\\", "/").rsplit("/", 1)[-1]
+            candidates = videos.get(basename.casefold(), [])
+            if not candidates:
+                requested = Path(basename)
+                candidates = by_stem.get(requested.stem.casefold(), [])
+                if not candidates:
+                    numbered = re.fullmatch(r"(.*?)(\d+)", requested.stem)
+                    if numbered:
+                        candidates = by_number.get((numbered.group(1).casefold(), int(numbered.group(2))), [])
+            if len(candidates) != 1:
+                if not candidates:
+                    raise ValueError(f"第 {number} 行无法匹配「{name}」。可核对文件名，或选择“首个匹配视频”按表格顺序读取。")
+                raise ValueError(f"第 {number} 行的「{name}」匹配到多个视频，请选择“首个匹配视频”或填写完整文件名。")
+            path = candidates[0].resolve()
         scheduled_at = _parse_schedule(schedule, number)
         signature = file_signature(path)
         with path.open("rb") as stream:

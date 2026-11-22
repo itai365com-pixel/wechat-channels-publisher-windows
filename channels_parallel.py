@@ -4,10 +4,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import hashlib
 from pathlib import Path
+import random
 import threading
 
 from conf import BASE_DIR
@@ -16,22 +17,24 @@ from loguru import logger
 from publisher_lock import AccountLock
 from publisher_options import cli_schedule, short_title_issues
 from batch_table import description_with_tags
-from daily_publish_limit import BANGKOK, DailyPublishBudget, HOURLY_LIMIT, PublishLimitReached, ROUND_INTERVAL, SUBMIT_PHASES
+from daily_publish_limit import BANGKOK, DailyPublishBudget, PublishLimitReached, SUBMIT_PHASES
 from uploader.tencent_uploader.main import (
     TencentVideo, cookie_auth, _build_launch_kwargs,
     TENCENT_PUBLISH_STRATEGY_IMMEDIATE, TENCENT_PUBLISH_STRATEGY_SCHEDULED,
 )
 
 
-MAX_TABS = 2
+MAX_TABS = 1
+MIN_POST_INTERVAL_MINUTES = 5
+MAX_POST_INTERVAL_MINUTES = 15
 
 
 class ReadyFirstScheduler:
-    """A fixed number of slots, FIFO ready order, and a single submit lock."""
+    """One upload tab, FIFO order, and one serial publish worker."""
 
     def __init__(self, width=MAX_TABS, stop=None):
         if not 1 <= width <= MAX_TABS:
-            raise ValueError('并行标签数量必须为 1 或 2')
+            raise ValueError('视频号批量发布固定使用单标签')
         self.width = width
         self.stop = stop or threading.Event()
         self.halt = asyncio.Event()
@@ -182,6 +185,7 @@ class ParallelPublisher:
         self.budget = budget or DailyPublishBudget(self.root)
         self.sleep = sleep
         self.limit_reached = False
+        self.selected = set()
 
     def save(self):
         temp = self.path.with_suffix('.tmp')
@@ -194,7 +198,7 @@ class ParallelPublisher:
         message = f'[{Path(row["file"]).name}] {label}'
         self.event('log', message + '\n')
         done = sum(item.get('status') in FINISHED_ITEMS for item in self.record['items'])
-        self.event('batch_row', (self.indices[id(row)], label, f'已完成 {done}/{len(self.record["items"])} · 最多{self.tabs}标签并行'))
+        self.event('batch_row', (self.indices[id(row)], label, f'已完成 {done}/{len(self.record["items"])} · 单标签顺序发布'))
         if row.get('log'):
             with Path(row['log']).open('a', encoding='utf-8') as stream:
                 stream.write(f'{datetime.now().isoformat()} {message}\n')
@@ -343,6 +347,15 @@ class ParallelPublisher:
             self.save()
             self.emit(row, '视频草稿保存成功（后台已核验）' if self.record.get('draft') else '视频发布成功（后台已核验）')
         self.close_sink(row)
+        if not self.record.get('draft') and not row.get('schedule'):
+            pending = any(id(item) in self.selected and item is not row
+                          and item.get('status') in ('pending', 'failed_before_submit')
+                          and item.get('phase') not in SUBMIT_PHASES for item in self.record['items'])
+            if pending and self.budget.usage(self.record['account'])['remaining']:
+                minutes = random.randint(MIN_POST_INTERVAL_MINUTES, MAX_POST_INTERVAL_MINUTES)
+                deadline = self.budget.current_time() + timedelta(minutes=minutes)
+                await self.wait_until(deadline, state_field='next_submit_at', status='waiting_between_posts',
+                                      message=f'下一条将在随机间隔 {minutes} 分钟后继续')
 
     def close_sink(self, row):
         sink = self.sinks.pop(id(row), None)
@@ -401,31 +414,22 @@ class ParallelPublisher:
         self.save()
         return code
 
-    async def wait_until(self, deadline):
-        previous = self.record.get('next_run_at')
-        self.record.update(status='waiting_for_next_round', next_run_at=deadline.isoformat())
+    async def wait_until(self, deadline, *, state_field='next_run_at', status='waiting_for_daily_quota', message=None):
+        deadline = datetime.fromisoformat(deadline) if isinstance(deadline, str) else deadline
+        previous = self.record.get(state_field)
+        self.record.update(status=status, **{state_field: deadline.isoformat()})
         self.save()
-        if previous != self.record['next_run_at']:
-            message = f'下一轮最早 {deadline.astimezone(BANGKOK):%m-%d %H:%M:%S}（曼谷时间）'
+        if previous != self.record[state_field]:
+            message = message or f'达到单日额度，曼谷时间次日 {deadline.astimezone(BANGKOK):%m-%d %H:%M} 自动继续'
             self.event('batch_wait', message)
             self.event('log', message + '\n')
         while not self.stop.is_set():
             seconds = (deadline - self.budget.current_time()).total_seconds()
             if seconds <= 0:
+                self.record.pop(state_field, None)
+                self.save()
                 return
             await self.sleep(min(seconds, 1))
-
-    def round_deadline(self):
-        saved = self.record.get('next_round_at')
-        if saved:
-            return datetime.fromisoformat(saved)
-        if self.record.get('round_in_progress'):
-            # Recover a round whose final result was saved just before the app closed.
-            finished = [datetime.fromisoformat(row['finished_at']) for row in self.record['items']
-                        if row.get('status') == 'completed' and row.get('finished_at')]
-            if finished:
-                return max(finished) + ROUND_INTERVAL
-        return None
 
     async def run_round(self, jobs):
         cookie = self.root / 'cookies' / f'tencent_{self.record["account"]}.json'
@@ -471,6 +475,7 @@ class ParallelPublisher:
         account_lock = AccountLock(self.root / '.local/gui/account-locks', account).acquire() if acquire_lock else None
         try:
             selected = {id(row) for row in self.preflight(reconcile=True)[:self.limit]}
+            self.selected = selected
             draft = self.record.get('draft', False)
             while True:
                 if self.stop.is_set():
@@ -486,24 +491,30 @@ class ParallelPublisher:
                     self.record['daily_budget'] = usage
                     now = self.budget.current_time()
                     quota_time = datetime.fromisoformat(usage['next_available_at'])
-                    deadline = max(quota_time, self.round_deadline() or now)
+                    interval_time = datetime.fromisoformat(self.record['next_submit_at']) if self.record.get('next_submit_at') else now
+                    if interval_time <= now and self.record.get('next_submit_at'):
+                        self.record.pop('next_submit_at', None)
+                        self.save()
+                        interval_time = now
+                    deadline = max(quota_time, interval_time)
                     if deadline > now:
-                        await self.wait_until(deadline)
+                        state_field = 'next_submit_at' if interval_time >= quota_time else 'next_run_at'
+                        status = 'waiting_between_posts' if state_field == 'next_submit_at' else 'waiting_for_daily_quota'
+                        await self.wait_until(deadline, state_field=state_field, status=status)
                         continue
-                    capacity = min(HOURLY_LIMIT, usage['hourly_remaining'], usage['remaining'])
+                    capacity = usage['remaining']
                     if not capacity:
                         continue
                     jobs = jobs[:capacity]
                 self.record.pop('next_run_at', None)
                 self.record.pop('next_round_at', None)
-                self.record.update(status='running', parallel_tabs=self.tabs, publish_order='cover_ready_first',
-                                   round_in_progress=not draft, publish_round=self.record.get('publish_round', 0)+1)
+                self.record.pop('round_in_progress', None)
+                self.record.update(status='running', parallel_tabs=1, publish_order='sequential_single_tab',
+                                   publish_round=self.record.get('publish_round', 0)+1)
                 self.save()
                 self.event('batch_wait', f'第 {self.record["publish_round"]} 轮 · 本轮 {len(jobs)} 条')
                 await self.run_round(jobs)
                 self.record.pop('round_in_progress', None)
-                if not draft and any(row.get('status') == 'completed' for row in jobs):
-                    self.record['next_round_at'] = (self.budget.current_time()+ROUND_INTERVAL).isoformat()
                 self.save()
                 if any(row.get('status') in ('unknown','failed_before_submit') for row in jobs if id(row) in self.started):
                     return self.finish('stopped_for_review', 1)
@@ -526,7 +537,7 @@ class ParallelPublisher:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--manifest', required=True, type=Path)
-    parser.add_argument('--tabs', default=MAX_TABS, type=int, choices=range(1, 6), help='最多使用 2 个标签；旧参数会自动限制。')
+    parser.add_argument('--tabs', default=MAX_TABS, type=int, choices=range(1, 6), help='视频号发布固定使用 1 个标签；旧参数会自动限制。')
     parser.add_argument('--cover-timeout', default=1800, type=float)
     parser.add_argument('--keep-last', action='append', default=[])
     parser.add_argument('--limit', type=int)

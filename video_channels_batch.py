@@ -143,6 +143,7 @@ class BatchPublisher(Publisher):
         self.count = tk.StringVar(root, value="")
         self.series = tk.StringVar(root, value="自动识别")
         self.filenames = tk.StringVar(root, value="")
+        self.first_match_video = tk.StringVar(root, value="")
         self.summary = tk.StringVar(root, value="请先读取文案表，预览本次要发布的视频。")
         self.stop_requested = threading.Event()
         self.items = []
@@ -164,7 +165,7 @@ class BatchPublisher(Publisher):
         self.task_browser = None
         self.use_embedded_browser = tk.BooleanVar(root, value=False)
         super().__init__(root)
-        root.title("视频号批量发布助手 v1.12.22")
+        root.title("视频号批量发布助手 v1.12.23")
         root.geometry(f"{min(1420, root.winfo_screenwidth() - 100)}x{min(960, root.winfo_screenheight() - 100)}")
         root.minsize(1060, 850)
         if auto_preview:
@@ -200,7 +201,7 @@ class BatchPublisher(Publisher):
         heading.grid(row=0, column=0, columnspan=3, sticky='ew', pady=(0, 10))
         heading.columnconfigure(1, weight=1)
         ttk.Label(heading, text="视频号批量发布", style="Heading.TLabel").grid(row=0, column=0, sticky='w')
-        ttk.Label(heading, text="最多 2 个标签 · 每轮最多 6 条 · 等 1 小时自动续发", style="Muted.TLabel").grid(row=0, column=1, sticky='w', padx=(14, 8))
+        ttk.Label(heading, text="单账号每日最多 6 条 · 单标签发布 · 立即发布随机间隔 5–15 分钟", style="Muted.TLabel").grid(row=0, column=1, sticky='w', padx=(14, 8))
         ttk.Button(heading, text='词映官网', command=self.open_wordmotion).grid(row=0, column=2, sticky='e')
         accounts = ttk.Frame(panel)
         accounts.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(0, 5))
@@ -273,6 +274,16 @@ class BatchPublisher(Publisher):
         names_hint.bind('<Button-1>', lambda _: names_entry.focus_set())
         self.filenames.trace_add('write', update_names_hint)
         update_names_hint()
+        first_video_row = ttk.Frame(panel)
+        first_video_row.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(0, 4))
+        first_video_row.columnconfigure(1, weight=1)
+        ttk.Label(first_video_row, text="首个匹配视频（可选）").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        first_video_entry = ttk.Entry(first_video_row, textvariable=self.first_match_video, width=1)
+        first_video_entry.grid(row=0, column=1, sticky="ew")
+        first_video_button = ttk.Button(first_video_row, text="选择…", command=self.choose_first_match_video)
+        first_video_button.grid(row=0, column=2, padx=(8, 0))
+        self.controls.extend([first_video_entry, first_video_button])
+        self.first_match_video.trace_add("write", lambda *_: self.preview())
         ttk.Label(panel, textvariable=self.summary, style="Muted.TLabel").grid(row=8, column=0, columnspan=3, sticky="w", pady=(0, 7))
 
         columns = ("number", "file", "short_title", "desc", "when", "status")
@@ -452,6 +463,7 @@ class BatchPublisher(Publisher):
         if selected:
             self.folder.set(selected)
             self.reset_selection()
+            self.first_match_video.set("")
             self.series.set('自动识别')
             self.table_path.set('')
             self.sheet.set('')
@@ -475,6 +487,16 @@ class BatchPublisher(Publisher):
         self.start_number.set('')
         self.count.set('')
         self.filenames.set('')
+
+    def choose_first_match_video(self):
+        folder = self.folder.get().strip()
+        if not folder or not Path(folder).is_dir():
+            self.status.set("请先选择视频文件夹。")
+            return
+        selected = filedialog.askopenfilename(parent=self.root, title="选择首个匹配视频",
+            initialdir=folder, filetypes=[("视频文件", "*.mp4 *.mov *.mkv *.avi *.m4v *.webm")])
+        if selected:
+            self.first_match_video.set(selected)
 
     def change_series(self, _event=None):
         self.reset_selection()
@@ -560,8 +582,11 @@ class BatchPublisher(Publisher):
         if result.renamed_titles:
             self.append_log("短标题中的逗号已替换为空格：" + "、".join(result.renamed_titles[:10]) + "。\n")
         order = "按指定文件顺序" if result.selection[2].strip() else "按文件名自然排序"
-        prefix = result.context[-1]
-        series_label = (prefix or "纯数字") if prefix is not None else "按明确文件名"
+        prefix = result.context[-1] if result.context else None
+        if self.first_match_video.get():
+            series_label = f"按表格顺序，从 {Path(self.first_match_video.get()).name} 开始匹配"
+        else:
+            series_label = (prefix or "纯数字") if prefix is not None else "按明确文件名"
         bad = [row for row in self.items if row["decode_error"]]
         extra = f"；{len(bad)} 条视频无法解码，已标红。" if bad else "。"
         self.summary.set(f"识别系列：{series_label}；文件夹 {result.video_count} 个视频，表格匹配 {result.matched_count} 条；本次预览 {len(self.items)} 条（{order}）{extra}")
@@ -699,7 +724,7 @@ class BatchPublisher(Publisher):
         jobs = [{**item, "status": "pending", "schedule": when} for item, when in zip(eligible, schedules)]
         action = "批量保存草稿" if draft else "批量定时发表" if settings["scheduled"] else "批量发布"
         record = {"account": account, "draft": draft, "options": settings, "source": self.table_path.get(),
-                  "sheet": self.sheet.get(), "items": jobs, "parallel_tabs": 2, "skipped_completed": skipped}
+                  "sheet": self.sheet.get(), "items": jobs, "parallel_tabs": 1, "skipped_completed": skipped}
         names = "、".join(Path(row["file"]).stem for row in jobs)
         question = f"账号：{self.account_display.get()}\n数量：{len(jobs)} 条\n视频：{names}\n文案来源：{Path(record['source']).name} / {record['sheet']}\n\n"
         question += options_summary(settings, schedules)
@@ -707,7 +732,7 @@ class BatchPublisher(Publisher):
         if skipped:
             question += f"\n已核验的 {len(skipped)} 条会跳过。"
         if not draft and jobs:
-            question += "\n每轮最多 6 条，完成后至少等 1 小时。达到每日额度后在曼谷次日继续。"
+            question += "\n单账号每天最多发表 6 条，使用 1 个浏览器标签；立即发布的每条视频核验成功后随机等待 5–15 分钟再继续。定时发表按表格时间执行。达到每日额度后在曼谷次日继续。"
             if schedules[0]:
                 question += "\n等待后如已来不及提交定时发表，队列会暂停。"
         return action, record, None, question, len(jobs)
@@ -850,7 +875,7 @@ class BatchPublisher(Publisher):
             self.cancel_preview()
             self.preview_config = None
             self.manifest_path, self.manifest = path, record
-            record['parallel_tabs'] = 2
+            record['parallel_tabs'] = 1
             self.account.set(record['account'])
             self.refresh_account_status()
             self.folder.set(str(Path(record['items'][0]['file']).parent))
@@ -873,7 +898,7 @@ class BatchPublisher(Publisher):
                 self.tree.insert('', 'end', iid=str(index), values=(index + 1, Path(row['file']).name,
                     row.get('short_title') or row['title'], row.get('publish_desc', row.get('desc', '')),
                     row.get('schedule') or '立即发表', label))
-            self.summary.set(f'继续队列：{path.name} · 待处理 {len(jobs)} 条 · 最多 2 个标签并行')
+            self.summary.set(f'继续队列：{path.name} · 待处理 {len(jobs)} 条 · 单标签发布')
             if not auto_start:
                 completed = sum(row.get('status') in FINISHED_ITEMS for row in record['items'])
                 self.preview_config = None
@@ -913,7 +938,7 @@ class BatchPublisher(Publisher):
     def request_stop(self):
         self.stop_requested.set()
         self.stop_button.configure(state="disabled")
-        self.status.set("已请求停止 · 当前最多 2 条结束后暂停")
+        self.status.set("已请求停止 · 当前视频处理完成后暂停")
 
     def run_parallel(self, action):
         from channels_parallel import ParallelPublisher
@@ -922,7 +947,7 @@ class BatchPublisher(Publisher):
         try:
             runner = ParallelPublisher(self.manifest_path, record=self.manifest,
                                        event=lambda kind, payload: self.events.put((kind, payload)),
-                                       stop=self.stop_requested, tabs=self.manifest.get('parallel_tabs', 2),
+                                       stop=self.stop_requested, tabs=self.manifest.get('parallel_tabs', 1),
                                        embedded_browser=self.task_browser)
             code = asyncio.run(runner.run(acquire_lock=False))
         except Exception as exc:
@@ -996,7 +1021,7 @@ class BatchPublisher(Publisher):
         super().close()
 
     def current_config(self):
-        return (self.folder.get(), self.table_path.get(), self.sheet.get(), self.series.get(), self.start_number.get(), self.count.get(), self.filenames.get(), self.options.snapshot())
+        return (self.folder.get(), self.table_path.get(), self.sheet.get(), self.series.get(), self.start_number.get(), self.count.get(), self.filenames.get(), self.first_match_video.get(), self.options.snapshot())
 
 
 if __name__ == "__main__":

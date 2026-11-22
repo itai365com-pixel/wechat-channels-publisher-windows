@@ -180,6 +180,30 @@ def video_series(folder):
     return dict(sorted(groups.items()))
 
 
+def match_records_from_video(records, folder, first_video):
+    """Pair table rows in their original order with videos starting at a chosen file."""
+    folder = Path(folder).resolve()
+    extensions = {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm"}
+    videos = [path for path in folder.iterdir() if path.is_file() and path.suffix.lower() in extensions]
+
+    def natural(path):
+        return tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
+                     for part in re.split(r"(\d+)", path.name))
+
+    videos.sort(key=natural)
+    selected = Path(first_video).resolve()
+    positions = {path.resolve(): index for index, path in enumerate(videos)}
+    if selected not in positions:
+        raise ValueError("选择的首个视频不在当前视频文件夹中，请重新选择。")
+    rows = [record for record in records if record.get("file")]
+    start = positions[selected]
+    available = videos[start:start + len(rows)]
+    if len(available) != len(rows):
+        raise ValueError(f"从首个视频开始只有 {len(available)} 个视频，但表格有 {len(rows)} 行文案。")
+    return [{**record, "file": str(video), "status": "待检查"}
+            for record, video in zip(rows, available)], len(videos)
+
+
 def resolve_series(records, folder, selected=None, *, groups=None):
     if groups is None:
         groups = video_series(folder)
@@ -201,6 +225,13 @@ def resolve_series(records, folder, selected=None, *, groups=None):
 def match_records(records, folder, series_prefix=None):
     folder = Path(folder).resolve()
     videos = {p.name.casefold(): p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm"}}
+    normalized_names = {}
+    for path in videos.values():
+        number = re.fullmatch(r"(.*?)(\d+)", path.stem)
+        normalized_names.setdefault(path.stem.casefold(), []).append(path)
+        if number:
+            key = (number.group(1).casefold(), int(number.group(2)))
+            normalized_names.setdefault(key, []).append(path)
     episodes = {}
     for path in videos.values():
         found = re.fullmatch(r"(.*?)(\d+)", path.stem)
@@ -213,6 +244,18 @@ def match_records(records, folder, series_prefix=None):
         # Match the exact basename, never an approximate episode number or row order.
         name = record["file"].replace("\\", "/").rsplit("/", 1)[-1]
         path = videos.get(name.casefold())
+        if path is None:
+            requested = Path(name)
+            candidates = normalized_names.get(requested.stem.casefold(), [])
+            if not candidates:
+                number = re.fullmatch(r"(.*?)(\d+)", requested.stem)
+                if number:
+                    key = (number.group(1).casefold(), int(number.group(2)))
+                    candidates = normalized_names.get(key, [])
+            if candidates:
+                if len(candidates) > 1:
+                    raise ValueError(f"表格文件名 {name} 对应多个视频，请填写与文件夹一致的完整文件名。")
+                path = candidates[0]
         if path is not None and series_prefix is not None:
             found = re.fullmatch(r"(.*?)(\d+)", path.stem)
             if not found or found.group(1).casefold() != series_prefix.casefold():

@@ -1,4 +1,4 @@
-"""Durable per-account rolling-hour and Bangkok calendar-day submission limits."""
+"""Durable per-account Bangkok calendar-day submission limits."""
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -10,7 +10,9 @@ import uuid
 from publisher_lock import AccountLock
 
 BANGKOK = timezone(timedelta(hours=7), 'Asia/Bangkok')
-DEFAULT_LIMIT = 36
+DEFAULT_LIMIT = 6
+MAX_DAILY_LIMIT = 6
+# Kept as display/backward-compatible metadata only; daily capacity is the gate.
 HOURLY_LIMIT = 6
 ROUND_INTERVAL = timedelta(hours=1)
 SUBMIT_PHASES = {'submit_started', 'submit_returned_success', 'backend_verified', 'confirmed_on_platform', 'post_submit_unverified'}
@@ -48,13 +50,12 @@ class DailyPublishBudget:
         path = self.root / '.local/gui/publish-policy.json'
         policy = json.loads(path.read_text(encoding='utf-8')) if path.is_file() else {}
         default = policy.get('daily_limit', DEFAULT_LIMIT)
-        # Older installers persisted the old default and leave existing policy files intact.
-        if 'hourly_limit' not in policy and type(default) is int and default == 20:
-            default = DEFAULT_LIMIT
         limit = policy.get('account_limits', {}).get(account, default)
-        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= DEFAULT_LIMIT:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError('单日发表额度配置无效，已阻止提交。')
-        return limit
+        # Older local policies may still say 20 or 36. Never let persisted settings
+        # exceed the current six-per-account product limit.
+        return min(limit, MAX_DAILY_LIMIT)
 
     def path(self, account):
         key = hashlib.sha256(account.strip().casefold().encode('utf-8')).hexdigest()
@@ -129,15 +130,12 @@ class DailyPublishBudget:
                 recent.append(stamp)
         limit = self.limit(account)
         remaining = max(0, limit - used)
-        hourly_remaining = max(0, HOURLY_LIMIT - len(recent))
         available = now
         if not remaining:
             available = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        if not hourly_remaining:
-            available = max(available, sorted(recent)[-HOURLY_LIMIT] + ROUND_INTERVAL)
         return {'account': account, 'day': day, 'timezone': 'Asia/Bangkok', 'limit': limit,
                 'used': used, 'remaining': remaining, 'hourly_limit': HOURLY_LIMIT,
-                'hourly_used': len(recent), 'hourly_remaining': hourly_remaining,
+                'hourly_used': len(recent), 'hourly_remaining': HOURLY_LIMIT,
                 'next_available_at': available.isoformat()}
 
     def usage(self, account):
@@ -172,5 +170,3 @@ class DailyPublishBudget:
     def require_capacity(usage):
         if not usage['remaining']:
             raise DailyPublishLimitReached(f'今日提交已达 {usage["limit"]} 条上限（曼谷时间）。')
-        if not usage['hourly_remaining']:
-            raise HourlyPublishLimitReached(f'过去 60 分钟已达 {HOURLY_LIMIT} 条提交上限。')

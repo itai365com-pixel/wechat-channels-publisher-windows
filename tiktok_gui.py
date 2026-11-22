@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 import webbrowser
 
 from publisher_options import TIME_FORMAT
-from publisher_preferences import first_directory, write_local_json
+from publisher_preferences import first_directory, load_batch_paths, write_local_json
 from tiktok_batch import run_batch
 from tiktok_queue import DAILY_LIMIT, HOURLY_LIMIT, TikTokQueue, account_key, file_signature, read_tiktok_items, write_template
 from tiktok_studio import STUDIO, open_studio
@@ -23,9 +23,12 @@ class TikTokPanel:
         self.window = window
         self.data_dir = Path(data_dir) if data_dir else ROOT / ".local/gui/tiktok"
         self.prefs = self.data_dir / "preferences.json"
+        self.input_paths = self.data_dir / "input-paths.json"
+        self.path_prefs = load_batch_paths(self.input_paths)
         self.account = tk.StringVar(window)
         self.folder = tk.StringVar(window)
         self.table = tk.StringVar(window)
+        self.first_video = tk.StringVar(window)
         self.all_records = tk.BooleanVar(window)
         self.batch_count = tk.StringVar(window)
         self.use_current_chrome = tk.BooleanVar(window)
@@ -72,7 +75,8 @@ class TikTokPanel:
         fields = (
             ("TikTok @用户名", self.account, "加载账号队列", self.load_account),
             ("视频文件夹", self.folder, "选择…", self.choose_folder),
-            ("泰文文案表", self.table, "选择…", self.choose_table),
+            ("TikTok 文案表（中文/泰文）", self.table, "选择…", self.choose_table),
+            ("首个匹配视频（可选）", self.first_video, "选择…", self.choose_first_video),
         )
         for index, (label, variable, action, callback) in enumerate(fields):
             ttk.Label(inputs, text=label).grid(row=index, column=0, sticky="w", padx=(0, 10), pady=3)
@@ -102,7 +106,7 @@ class TikTokPanel:
         grid.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(grid, columns=("file", "caption", "time", "status"),
                                  show="headings", selectmode="browse")
-        for key, label, width in (("file", "视频文件", 140), ("caption", "泰文文案和话题", 420),
+        for key, label, width in (("file", "视频文件", 140), ("caption", "TikTok 文案和话题", 420),
                                   ("time", "曼谷发布时间", 150), ("status", "状态", 95)):
             self.tree.heading(key, text=label)
             self.tree.column(key, width=width, minwidth=75, stretch=key == "caption")
@@ -120,7 +124,7 @@ class TikTokPanel:
         for key, label, callback in (
             ("begin", "开始处理 / 复制路径", self.begin),
             ("path", "复制视频路径", lambda: self.copy_selected("file")),
-            ("caption", "复制泰文文案", lambda: self.copy_selected("caption")),
+            ("caption", "复制文案和话题", lambda: self.copy_selected("caption")),
             ("scheduled", "登记已排期", lambda: self.confirm("scheduled")),
             ("published", "登记已发布", lambda: self.confirm("published")),
             ("pending", "确认未提交", lambda: self.confirm("pending")),
@@ -130,16 +134,48 @@ class TikTokPanel:
             self.row_buttons[key] = button
 
     def choose_folder(self):
-        selected = filedialog.askdirectory(parent=self.window, initialdir=first_directory(self.folder.get()))
+        selected = filedialog.askdirectory(
+            parent=self.window,
+            initialdir=first_directory(self.path_prefs.get("folder"), self.folder.get()),
+        )
         if selected:
             self.folder.set(selected)
+            chosen_video = self.first_video.get().strip()
+            if chosen_video and Path(chosen_video).parent.resolve() != Path(selected).resolve():
+                self.first_video.set("")
+            self.remember_input_paths()
+
+    def remember_input_paths(self):
+        data = dict(self.path_prefs)
+        folder = self.folder.get().strip()
+        table = self.table.get().strip()
+        if folder and Path(folder).is_dir():
+            data["folder"] = str(Path(folder).resolve())
+        if table and Path(table).is_file():
+            data["table_dir"] = str(Path(table).resolve().parent)
+        if data != self.path_prefs:
+            write_local_json(self.input_paths, data)
+            self.path_prefs = data
+
+    def choose_first_video(self):
+        initial = self.folder.get().strip() or first_directory(self.table.get())
+        selected = filedialog.askopenfilename(
+            parent=self.window,
+            initialdir=first_directory(initial, self.path_prefs.get("folder")),
+            filetypes=[("视频文件", "*.mp4 *.mov *.webm *.mkv *.avi *.m4v")],
+        )
+        if selected:
+            self.first_video.set(selected)
 
     def choose_table(self):
         previous = Path(self.table.get()).parent if self.table.get() else None
-        selected = filedialog.askopenfilename(parent=self.window, initialdir=first_directory(previous, self.folder.get()),
+        selected = filedialog.askopenfilename(parent=self.window,
+                                              initialdir=first_directory(self.path_prefs.get("table_dir"), previous,
+                                                                          self.folder.get()),
                                               filetypes=[("文案表格", "*.xlsx *.csv *.tsv")])
         if selected:
             self.table.set(selected)
+            self.remember_input_paths()
 
     def save_template(self):
         path = filedialog.asksaveasfilename(parent=self.window, defaultextension=".csv",
@@ -179,18 +215,20 @@ class TikTokPanel:
         try:
             store = TikTokQueue(self.data_dir, self.account.get())
             folder, table = self.folder.get().strip(), self.table.get().strip()
+            first_video = self.first_video.get().strip()
+            self.remember_input_paths()
             if not folder or not table:
                 raise ValueError("请先选择视频文件夹和文案表。")
         except ValueError as exc:
             self.status.set(str(exc))
             return
         self.set_busy(True, can_pause=False)
-        self.status.set("正在读取泰文文案和检查视频…")
+        self.status.set("正在读取 TikTok 文案并检查视频…")
 
         def load():
             try:
                 with store.batch_lock():
-                    sheet, items = read_tiktok_items(folder, table)
+                    sheet, items = read_tiktok_items(folder, table, first_video=first_video)
                     state = store.import_items(items, folder=folder, table=table, sheet=sheet)
                 self.events.put(("done", store, state, None))
             except Exception as exc:
@@ -371,7 +409,7 @@ class TikTokPanel:
             if field == "file" and (row["status"] != "checking" or file_signature(row["file"]) != row["signature"]):
                 raise ValueError("视频或处理状态已变化，请先核对队列。")
             self.copy(row[field])
-            self.status.set("已复制视频路径。" if field == "file" else "已复制泰文文案和话题。")
+            self.status.set("已复制视频路径。" if field == "file" else "已复制文案和话题。")
         except (KeyError, OSError, ValueError, tk.TclError) as exc:
             self.status.set(str(exc))
 

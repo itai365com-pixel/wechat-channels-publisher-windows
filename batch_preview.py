@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 
-from batch_table import match_records, read_tables, records_from_rows, resolve_series, select_records, video_series
+from batch_table import match_records, match_records_from_video, read_tables, records_from_rows, resolve_series, select_records, video_series
 from publisher_options import normalize_short_title, planned_times, short_title_issues
 
 
@@ -70,7 +70,7 @@ def _choose_rows(matched, selection, prefix):
 
 
 def read_batch_preview(config, previous_context, previous_selection, checked, cancelled):
-    folder_value, table, sheet, choice, first, last, names, settings = config
+    folder_value, table, sheet, choice, first, last, names, first_video, settings = config
     result = BatchPreview(table=table.strip(), sheet=sheet, selection=(first, last, names))
     if cancelled.is_set():
         return result
@@ -92,11 +92,20 @@ def read_batch_preview(config, previous_context, previous_selection, checked, ca
         result.sheets = list(tables)
         result.sheet = sheet if sheet in tables else result.sheets[0]
         records = records_from_rows(tables[result.sheet])
-        groups = video_series(folder)
-        result.series = ["自动识别"] + [prefix or "（纯数字）" for prefix in groups]
-        selected = None if choice == "自动识别" else "" if choice == "（纯数字）" else choice
-        prefix = resolve_series(records, folder, selected, groups=groups)
-        matched, result.video_count = match_records(records, folder, series_prefix=prefix)
+        if first_video:
+            if first or last or names.strip():
+                raise ValueError("使用“首个匹配视频”时，请清空编号范围和指定文件。")
+            matched, result.video_count = match_records_from_video(records, folder, first_video)
+            prefix = None
+            result.context = (str(folder.resolve()), str(table_path.resolve()), result.sheet,
+                              "selected-video", str(Path(first_video).resolve()))
+            result.selection = ("", "", "")
+        else:
+            groups = video_series(folder)
+            result.series = ["自动识别"] + [prefix or "（纯数字）" for prefix in groups]
+            selected = None if choice == "自动识别" else "" if choice == "（纯数字）" else choice
+            prefix = resolve_series(records, folder, selected, groups=groups)
+            matched, result.video_count = match_records(records, folder, series_prefix=prefix)
         if not matched:
             raise ValueError("没有匹配的视频与文案，请核对文件系列、集数或表格中的文件名。")
         result.matched_count = len(matched)
@@ -105,7 +114,8 @@ def read_batch_preview(config, previous_context, previous_selection, checked, ca
             matched_groups = {part.group(1).casefold() for part in parts if part}
             if all(parts) and len(matched_groups) == 1:
                 prefix = next(iter(matched_groups))
-        result.context = (str(folder.resolve()), str(table_path.resolve()), result.sheet, prefix)
+        if not first_video:
+            result.context = (str(folder.resolve()), str(table_path.resolve()), result.sheet, prefix)
         if previous_context is not None and result.context != previous_context and result.selection == previous_selection:
             result.selection = ("", "", "")
         items = _choose_rows(matched, result.selection, prefix)

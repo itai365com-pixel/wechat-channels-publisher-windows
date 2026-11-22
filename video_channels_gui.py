@@ -39,9 +39,9 @@ class Publisher:
         self.status = tk.StringVar(value="就绪 · 选择视频后填写发布内容")
         self.file_info = tk.StringVar(value="支持 MP4、MOV 等视频文件")
         self.login_status = tk.StringVar(value="")
-        self.quota_status = tk.StringVar(value="每账号每小时 6 条 · 每日 36 条（曼谷时间）")
+        self.quota_status = tk.StringVar(value="单账号每日最多 6 条（曼谷时间）")
         self.controls: list = []
-        root.title("视频号发布助手 v1.12.22")
+        root.title("视频号发布助手 v1.12.23")
         icon = ROOT / "assets" / "publisher-mark.ico"
         if sys.platform == "win32" and icon.is_file():
             root.iconbitmap(default=str(icon))
@@ -164,7 +164,7 @@ class Publisher:
         self.login_status.set("已保存登录会话 · 发布前会自动检查有效性" if saved else "尚未保存登录会话 · 请先扫码登录")
         try:
             usage = DailyPublishBudget(ROOT).usage(self.account.get())
-            self.quota_status.set(f'近 60 分钟 {usage["hourly_used"]}/{usage["hourly_limit"]} · 今日 {usage["used"]}/{usage["limit"]}（曼谷）')
+            self.quota_status.set(f'今日 {usage["used"]}/{usage["limit"]} 条（曼谷时间）')
         except Exception as exc:
             self.quota_status.set(f'无法读取提交额度：{exc}')
 

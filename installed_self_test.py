@@ -28,7 +28,7 @@ def main(arguments=None):
         import patchright
         from patchright.async_api import async_playwright
         from batch_table import read_tables, records_from_rows, match_records
-        from daily_publish_limit import BANGKOK, DailyPublishBudget, DailyPublishLimitReached, HourlyPublishLimitReached
+        from daily_publish_limit import BANGKOK, DailyPublishBudget, DailyPublishLimitReached
         from video_channels_batch import BatchPublisher, DEFAULT_FOLDER
         from video_channels_gui import Publisher
         import channels_analytics
@@ -67,27 +67,18 @@ def main(arguments=None):
             def quota():
                 now = datetime(2026, 5, 12, 9, tzinfo=BANGKOK)
                 budget = DailyPublishBudget(work, lambda: now)
-                for hour in range(6):
-                    if hour:
-                        now += timedelta(hours=1)
-                    for _ in range(6):
-                        budget.reserve('selftest')
-                    if hour == 0:
-                        try:
-                            budget.reserve('selftest')
-                        except HourlyPublishLimitReached:
-                            pass
-                        else:
-                            raise AssertionError('7th hourly reservation was accepted')
-                assert DailyPublishBudget(work, lambda: now).usage('selftest')['remaining'] == 0
-                now += timedelta(hours=1)
+                for _ in range(6):
+                    budget.reserve('selftest')
                 try:
                     budget.reserve('selftest')
                 except DailyPublishLimitReached:
                     pass
                 else:
-                    raise AssertionError('37th daily reservation was accepted')
-            check('persistent_hourly_six_daily_thirty_six', quota)
+                    raise AssertionError('7th daily reservation was accepted')
+                assert DailyPublishBudget(work, lambda: now).usage('selftest')['remaining'] == 0
+                now += timedelta(days=1)
+                budget.reserve('selftest')
+            check('persistent_daily_six_per_account', quota)
 
             def analytics_report():
                 fixture = {'complete':True,'requested_count':1,'fetched_at':'2026-11-06T23:00:00+07:00',
